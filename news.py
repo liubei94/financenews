@@ -10,6 +10,7 @@ from docx.oxml.ns import qn
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from urllib.parse import urlparse
 from datetime import datetime
+import re
 
 # Load environment variables
 load_dotenv()
@@ -23,33 +24,34 @@ def extract_article_content(url):
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.text, 'html.parser')
-
     title_tag = soup.find('h2', class_='media_end_head_headline')
     title = title_tag.get_text(strip=True) if title_tag else '제목 없음'
-
     content_tag = soup.find('article')
     paragraphs = content_tag.find_all('p') if content_tag else []
     content = ' '.join([p.get_text(strip=True) for p in paragraphs])
-
     return title, content
 
 ### 키워드 추출 (GPT)
 def extract_keywords_with_gpt(title, content):
     prompt = f"""
-다음은 뉴스 제목과 본문입니다. 핵심 키워드 5개를 한글로만 추출해줘. 
-중요한 주제, 인물, 기관, 숫자 기반 키워드도 포함시켜줘.
-
+제목과 본문을 참고해 핵심 키워드 5개를 한글로 추출해줘:
 제목: {title}
 본문: {content}
 """
     response = client.chat.completions.create(
-        model='gpt-4o',
+        model="gpt-4o",
         messages=[
-            {'role': 'system', 'content': '당신은 핵심 키워드 추출 도우미입니다.'},
-            {'role': 'user', 'content': prompt}
+            {"role": "system", "content": "당신은 키워드 추출기입니다."},
+            {"role": "user", "content": prompt}
         ]
     )
-    return response.choices[0].message.content.strip().split('\n')
+    keywords = response.choices[0].message.content.strip().split('\n')
+    cleaned = []
+    for kw in keywords:
+        kw = re.sub(r'^\d+\.\s*', '', kw).strip()  # 숫자. 제거 (1. 키워드 → 키워드)
+        if kw:
+            cleaned.append(kw)
+    return cleaned[:10]  # 최대 10개 제한
 
 ### 2단계: 뉴스 검색 (NAVER API)
 def search_news_naver(keywords, start_date, end_date, display=30):
@@ -137,27 +139,51 @@ def summarize_news_articles(titles, contents):
     full_text = ""
     for i in range(len(titles)):
         full_text += f"[{i+1}] {titles[i]}\n{contents[i]}\n\n"
+
     prompt = f"""
-다음은 여러 뉴스 기사들의 제목과 본문 내용입니다. 이를 종합해서 다음과 같은 형식으로 요약해줘:
+당신은 경제/산업 분야의 전문 뉴스 분석가입니다.
 
-1. 제목: 한 줄
-2. 본문: A4 1장 분량 요약 (중요 내용은 비교 표로 정리해도 좋음)
-3. 결론: 2~3줄 요약
+아래는 여러 뉴스 기사들의 제목과 본문입니다.  
+이 내용을 **심층 분석 요약** 형식으로 정리해주세요. 요약은 다음 구조를 반드시 따르세요:
 
-뉴스 기사 전체 내용:
+---
+
+1. 📌 **핵심 주제 요약** (1~2문장)
+
+2. 📰 **뉴스 요점 정리**
+   - 어떤 사건/행동이 있었는가?
+   - 주요 인물, 기업, 기관은 누구인가?
+   - 기술/산업/시장 맥락은 무엇인가?
+
+3. 📊 **비교 또는 이슈 요약 (필요시 표로)**  
+   - 기사 간 유사점/차이점 정리
+   - 수치/정책 변화 비교 등
+
+4. 🧠 **결론 및 시사점**
+   - 향후 주의 깊게 봐야 할 변화나 흐름
+   - 독자가 얻을 수 있는 통찰
+
+---
+
+아래는 분석할 뉴스 전체 내용입니다:
+
 {full_text}
+
+⚠️ 누락된 쟁점이나 보완 설명이 필요한 부분이 있다면 마지막에 따로 언급해주세요.
 """
+
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "당신은 전문적인 뉴스 분석 요약 도우미입니다."},
+            {"role": "system", "content": "당신은 정확하고 깊이 있는 뉴스 요약가입니다."},
             {"role": "user", "content": prompt}
-        ]
+        ],
+        temperature=0.7
     )
     return response.choices[0].message.content.strip()
 
 ### 5단계: Word 파일 저장
-def save_summary_to_word(summary_text, titles, links, news_items, keywords, save_path):
+def save_summary_to_word(summary_text, titles, links, news_items, keywords, output_stream, failed_links=None):
     doc = Document()
     style = doc.styles['Normal']
     font = style.font
@@ -214,8 +240,8 @@ def save_summary_to_word(summary_text, titles, links, news_items, keywords, save
         info = f" ({origin}" + (f", {pubdate}" if pubdate else "") + ")"
         p.add_run(info)
 
-    doc.save(save_path)
-    print(f"✅ Word 파일이 저장되었습니다: {save_path}")
+    doc.save(output_stream)
+    print(f"✅ Word 파일이 저장되었습니다: {output_stream}")
 
 def add_hyperlink(paragraph, url, text):
     part = paragraph.part
