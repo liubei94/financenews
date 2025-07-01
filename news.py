@@ -34,14 +34,14 @@ def extract_article_content(url):
 ### 키워드 추출 (GPT)
 def extract_keywords_with_gpt(title, content):
     prompt = f"""
-제목과 본문을 참고해 핵심 키워드 5개를 한글로 추출해줘:
+제목과 본문을 참고해 핵심 키워드 3개를 한글로 추출해줘:
 제목: {title}
 본문: {content}
 """
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "당신은 키워드 추출기입니다."},
+            {"role": "system", "content": "당신은 키워드 추출기입니다. 본문을 가장 잘 나타낼 수 있는 키워드를 추출하세요."},
             {"role": "user", "content": prompt}
         ]
     )
@@ -51,7 +51,7 @@ def extract_keywords_with_gpt(title, content):
         kw = re.sub(r'^\d+\.\s*', '', kw).strip()  # 숫자. 제거 (1. 키워드 → 키워드)
         if kw:
             cleaned.append(kw)
-    return cleaned[:10]  # 최대 10개 제한
+    return cleaned[:3]  # 최대 3개 제한
 
 ### 2단계: 뉴스 검색 (NAVER API)
 def search_news_naver(keywords, start_date, end_date, display=30):
@@ -72,6 +72,35 @@ def search_news_naver(keywords, start_date, end_date, display=30):
     else:
         print("⚠️ 네이버 API 요청 실패:", response.text)
         return []
+
+### ✅ 날짜 필터링 함수 추가
+def filter_news_by_date(news_items, start_date, end_date):
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    filtered = []
+    for item in news_items:
+        pub_raw = item.get("pubDate")
+        if not pub_raw:
+            continue
+        try:
+            pub_date = datetime.strptime(pub_raw, "%a, %d %b %Y %H:%M:%S %z").date()
+            if start <= pub_date <= end:
+                filtered.append(item)
+        except Exception as e:
+            print("❌ 날짜 파싱 실패:", e)
+            continue
+    return filtered
+
+### ✅ 기사 목록 출력 함수 추가
+def display_news_list(news_items):
+    print("\n🔍 검색된 뉴스 목록:")
+    for i, item in enumerate(news_items, 1):
+        title = re.sub('<.*?>', '', item['title'])  # HTML 태그 제거
+        link = item['link']
+        pubdate = extract_pubdate_from_item(item)
+        print(f"[{i}] {title} ({pubdate})")
+        print(f"     {link}")
+
 
 ### 3단계: 뉴스 기사 크롤링
 def extract_naver_article(link):
@@ -292,3 +321,32 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
+## 전체 워크플로우 실행 함수
+def run_news_summary_workflow(initial_url, start_date, end_date):
+    print("▶️ 기사 원문 수집 중...")
+    title, content = extract_article_content(initial_url)
+
+    print("▶️ GPT 키워드 추출 중...")
+    keywords = extract_keywords_with_gpt(title, content)
+    print("🔑 추출된 키워드:", keywords)
+
+    print("▶️ 네이버 뉴스 검색 중...")
+    news_items = search_news_naver(keywords, start_date, end_date)
+
+    print("▶️ 날짜 필터링 적용 중...")
+    filtered_items = filter_news_by_date(news_items, start_date, end_date)
+
+    print(f"🔍 필터링 후 뉴스 개수: {len(filtered_items)}")
+    if not filtered_items:
+        print("❌ 필터링된 뉴스가 없습니다. 날짜 범위를 확인해주세요.")
+        return  
+
+    display_news_list(filtered_items)
+
+if __name__ == "__main__":
+    test_url = "https://n.news.naver.com/article/001/0014737586"  # 테스트 기사 URL
+    start_date = "2025-06-01"
+    end_date = "2025-06-30"
+
+    run_news_summary_workflow(test_url, start_date, end_date)
