@@ -13,4 +13,4 @@ GPT를 통해 요약 정리하여 Word 파일로 다운로드할 수 있는 앱�
 
 ## 실행 방법
 ```bash
-streamlit run streamlit_news_app.py
+streamlit run news_streamlit.py
