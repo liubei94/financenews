@@ -75,21 +75,50 @@ def search_news_naver(keywords, start_date, end_date, display=30):
 
 ### ✅ 날짜 필터링 함수 추가
 def filter_news_by_date(news_items, start_date, end_date):
-    start = datetime.strptime(start_date, "%Y-%m-%d").date()
-    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    # 문자열이면 파싱, date/datetime이면 그대로 사용
+    if isinstance(start_date, str):
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    else:
+        start = start_date
+
+    if isinstance(end_date, str):
+        end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    else:
+        end = end_date
+
     filtered = []
-    for item in news_items:
+    
+
+    print(f"\n🟡 필터링 전 총 뉴스 개수: {len(news_items)}")
+
+    for i, item in enumerate(news_items, 1):
+        title = re.sub('<.*?>', '', item.get("title", "제목 없음"))
+        link = item.get("link")
         pub_raw = item.get("pubDate")
+
+        print(f"\n[{i}] 📄 {title}")
+        print(f"    🔗 {link}")
+        print(f"    📅 원본 pubDate: {pub_raw}")
+
         if not pub_raw:
+            print("    ❌ pubDate 없음, 필터 제외됨")
             continue
+
         try:
             pub_date = datetime.strptime(pub_raw, "%a, %d %b %Y %H:%M:%S %z").date()
+            print(f"    ✅ 파싱된 날짜: {pub_date}")
             if start <= pub_date <= end:
+                print("    ✅ ✅ 날짜 범위 ✅ 포함됨")
                 filtered.append(item)
+            else:
+                print("    ⚠️ 날짜 범위 밖 → 제외됨")
         except Exception as e:
-            print("❌ 날짜 파싱 실패:", e)
-            continue
+            print("    ❌ pubDate 파싱 실패:", e)
+
+    print(f"\n🟢 필터링 후 뉴스 개수: {len(filtered)}")
     return filtered
+
+
 
 ### ✅ 기사 목록 출력 함수 추가
 def display_news_list(news_items):
@@ -170,7 +199,8 @@ def summarize_news_articles(titles, contents):
         full_text += f"[{i+1}] {titles[i]}\n{contents[i]}\n\n"
 
     prompt = f"""
-당신은 경제/산업 분야의 전문 뉴스 분석가입니다.
+당신은 정치/경제/산업 분야의 전문 뉴스 분석가입니다.
+회사 CFO나 CEO가 의사결정을 위해 필요한 심층 분석 요약을 작성합니다.
 
 아래는 여러 뉴스 기사들의 제목과 본문입니다.  
 이 내용을 **심층 분석 요약** 형식으로 정리해주세요. 요약은 다음 구조를 반드시 따르세요:
@@ -181,6 +211,7 @@ def summarize_news_articles(titles, contents):
 
 2. 📰 **뉴스 요점 정리**
    - 어떤 사건/행동이 있었는가?
+   - 원인은 무엇인가?
    - 주요 인물, 기업, 기관은 누구인가?
    - 기술/산업/시장 맥락은 무엇인가?
 
@@ -337,6 +368,12 @@ def run_news_summary_workflow(initial_url, start_date, end_date):
     print("▶️ 날짜 필터링 적용 중...")
     filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
+    if not filtered_items:
+        print("❌ 날짜 조건에 맞는 뉴스가 없습니다.")
+    else:
+        display_news_list(filtered_items)
+
+
     print(f"🔍 필터링 후 뉴스 개수: {len(filtered_items)}")
     if not filtered_items:
         print("❌ 필터링된 뉴스가 없습니다. 날짜 범위를 확인해주세요.")
@@ -345,8 +382,8 @@ def run_news_summary_workflow(initial_url, start_date, end_date):
     display_news_list(filtered_items)
 
 if __name__ == "__main__":
-    test_url = "https://n.news.naver.com/article/001/0014737586"  # 테스트 기사 URL
-    start_date = "2025-06-01"
-    end_date = "2025-06-30"
+    test_url = "https://n.news.naver.com/article/014/0005371160?cds=news_media_pc"  # 테스트 기사 URL
+    start_date = "2025-07-01"
+    end_date = "2025-07-02"
 
     run_news_summary_workflow(test_url, start_date, end_date)
