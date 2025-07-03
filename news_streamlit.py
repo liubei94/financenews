@@ -56,7 +56,7 @@ if st.session_state.step == "keywords_ready":
     st.markdown("### 🔑 추출된 키워드 확인 및 수정")
     keywords_input = st.text_input(
         "GPT가 추출한 키워드입니다. 필요시 수정하세요 (최대 10개, 띄어쓰기로 구분):",
-        value=' '.join(st.session_state.default_keywords),
+        value=', '.join(st.session_state.default_keywords),
         key="keywords_input"
     )
 
