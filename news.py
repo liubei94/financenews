@@ -34,7 +34,10 @@ def extract_article_content(url):
 ### 키워드 추출 (GPT)
 def extract_keywords_with_gpt(title, content):
     prompt = f"""
-제목과 본문을 참고해 핵심 키워드 3개를 한글로 추출해줘:
+다음은 뉴스의 제목과 본문입니다. 핵심 키워드 3개를 한글로 추출해주세요.
+- 제목에 등장하는 단어나 표현을 우선 고려해 키워드를 선택해주세요.
+- 본문 전체를 참고하되, 주제를 잘 대표하는 단어를 뽑아주세요.
+
 제목: {title}
 본문: {content}
 """
