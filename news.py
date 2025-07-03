@@ -247,50 +247,79 @@ def summarize_news_articles(titles, contents):
 
 ### 5단계: Word 파일 저장
 def save_summary_to_word(summary_text, titles, links, news_items, keywords, output_stream, failed_links=None):
+    from docx import Document
+    from docx.shared import Pt
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    import re
+    from urllib.parse import urlparse
+
     doc = Document()
     style = doc.styles['Normal']
     font = style.font
     font.name = '맑은 고딕'
     font.size = Pt(10)
 
-    doc.add_paragraph("🔑 주요 키워드: " + ', '.join(keywords))
-    doc.add_paragraph("")
+    # 섹션 제목 정의 (14pt Bold)
+    section_titles = [
+        "핵심 주제 요약",
+        "뉴스 요점 정리",
+        "비교 또는 이슈 요약",
+        "결론 및 시사점"
+    ]
 
     lines = summary_text.split('\n')
-    for line in lines:
-        line = line.strip()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
         if not line:
+            i += 1
             continue
-        if line.startswith("제목:"):
-            p = doc.add_paragraph()
-            run = p.add_run(line)
-            run.bold = True
-            run.font.size = Pt(14)
-        elif line.startswith("결론:") or line.startswith("결론"):
-            doc.add_paragraph("")
-            p = doc.add_paragraph()
-            run = p.add_run(line)
-            run.bold = True
-            run.font.size = Pt(10)
-        elif line.startswith('|') and line.endswith('|'):
+
+        # 표 처리
+        if line.startswith('|') and line.endswith('|'):
             table_data = []
-            while line.startswith('|') and line.endswith('|'):
-                cells = [cell.strip() for cell in line.strip().split('|')[1:-1]]
+            while i < len(lines) and lines[i].strip().startswith('|') and lines[i].strip().endswith('|'):
+                cells = [cell.strip() for cell in lines[i].strip().split('|')[1:-1]]
                 table_data.append(cells)
-                lines = lines[1:]
-                if not lines:
-                    break
-                line = lines[0].strip()
+                i += 1
             table = doc.add_table(rows=0, cols=len(table_data[0]))
             for row_data in table_data:
                 row = table.add_row().cells
                 for idx, cell in enumerate(row_data):
                     row[idx].text = cell
             continue
-        else:
-            p = doc.add_paragraph(line)
-            p.style.font.size = Pt(10)
 
+        # 14pt Bold 제목 처리
+        matched = False
+        for title in section_titles:
+            if title in line:
+                p = doc.add_paragraph()
+                run = p.add_run(title)
+                run.bold = True
+                run.font.size = Pt(14)
+                matched = True
+                break
+        if matched:
+            i += 1
+            continue
+
+        # 일반 줄 처리, 중간에 **텍스트** 있는 부분은 10pt Bold로 처리
+        p = doc.add_paragraph()
+        parts = re.split(r'(\*\*.*?\*\*)', line)  # '**텍스트**' 기준으로 나눔
+        for part in parts:
+            if part.startswith('**') and part.endswith('**'):
+                clean = part[2:-2]  # ** 제거
+                run = p.add_run(clean)
+                run.bold = True
+                run.font.size = Pt(10)
+            else:
+                run = p.add_run(part)
+                run.font.size = Pt(10)
+        i += 1
+
+    # 참고 뉴스 목록
     doc.add_page_break()
     doc.add_paragraph("📎 참고 뉴스 목록", style='Heading 1')
 
