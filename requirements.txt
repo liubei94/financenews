@@ -1,10 +1,23 @@
-requests
-beautifulsoup4
-openai
-python-dotenv
-python-docx
+# Streamlit UI Framework
 streamlit
-html-to-markdown
-webdriver-manager
-html2text
-selenium
+
+# OpenAI API for GPT models
+openai
+
+# Environment variable management
+python-dotenv
+
+# Synchronous HTTP requests (for initial setup)
+requests
+
+# HTML parsing
+beautifulsoup4
+
+# Word document (.docx) creation
+python-docx
+
+# Asynchronous HTTP requests (for parallel processing)
+httpx
+
+# Progress bar for loops
+tqdm
