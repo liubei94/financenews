@@ -4,7 +4,7 @@ from datetime import datetime
 from io import BytesIO
 
 from news import (
-    extract_article,
+    extract_article_content,
     extract_keywords_with_gpt,
     search_news_naver,
     extract_article,
@@ -41,7 +41,7 @@ if st.button("🚀 GPT 키워드 추출"):
     else:
         with st.spinner("GPT로 키워드를 추출 중입니다..."):
             try:
-                title, content = extract_article(link)
+                title, content = extract_article_content(link)
                 default_keywords = extract_keywords_with_gpt(title, content)
                 st.session_state.title = title
                 st.session_state.content = content
