@@ -1,132 +1,157 @@
+# app.py
+
 import streamlit as st
 import os
-from datetime import datetime
+from datetime import datetime, date
 from io import BytesIO
+import asyncio
 
-from news import (
-    extract_article_content,
+# 최적화된 백엔드 워크플로우 함수들을 import
+from news_workflow import (
+    extract_initial_article_content,
     extract_keywords_with_gpt,
     search_news_naver,
-    extract_article,
-    summarize_news_articles,
+    filter_news_by_date,
+    run_analysis_and_synthesis_async,
     save_summary_to_word,
-    filter_news_by_date  # ✅ 날짜 필터링 함수 추가 import
 )
 
-st.set_page_config(page_title="뉴스 요약 리포트 생성기", page_icon="📰")
-st.title("📰 뉴스 요약 Word 리포트 생성기")
-st.markdown("""
-1. 뉴스 링크를 입력하면 키워드를 추출하고  
-2. 관련 뉴스를 수집한 뒤  
-3. GPT로 요약하여  
-4. Word 파일로 정리해드립니다.
-""")
+st.set_page_config(
+    page_title="AI 뉴스 분석 리포트 생성기", page_icon="📰", layout="wide"
+)
+st.title("📰 AI 뉴스 분석 Word 리포트 생성기")
+st.markdown(
+    """
+1.  **기준 뉴스 링크**를 입력하고 기간을 설정하세요.
+2.  **GPT 키워드 추출** 버튼을 눌러 AI가 핵심 키워드를 찾도록 합니다.
+3.  추출된 키워드를 확인하고 **리포트 생성 시작** 버튼을 누르면, AI가 관련 뉴스를 분석하여 심층 리포트를 생성합니다.
+"""
+)
 
-link = st.text_input("🔗 분석할 뉴스 링크 입력")
-start_date = st.date_input("검색 시작일", datetime.today())
-end_date = st.date_input("검색 종료일", datetime.today())
-count = st.number_input("검색할 뉴스 건수", min_value=1, max_value=100, value=30)
-save_filename = st.text_input("💾 저장할 파일 이름 (확장자 제외)", "요약_뉴스")
+# --- UI 컴포넌트 ---
+with st.form("input_form"):
+    link = st.text_input(
+        "🔗 분석의 기준이 될 뉴스 링크를 입력하세요",
+        placeholder="https://n.news.naver.com/article/...",
+    )
 
-# 초기화
-if 'step' not in st.session_state:
-    st.session_state.step = None
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("검색 시작일", date.today())
+    with col2:
+        end_date = st.date_input("검색 종료일", date.today())
 
-# 단계 1: 키워드 추출 시작
-if st.button("🚀 GPT 키워드 추출"):
+    submitted = st.form_submit_button("1️⃣ GPT 키워드 추출", type="primary")
+
+# --- 세션 상태 초기화 ---
+if "step" not in st.session_state:
+    st.session_state.step = "initial"
+    st.session_state.keywords = []
+    st.session_state.final_report = None
+    st.session_state.successful_results = []
+    st.session_state.failed_results = []
+
+# --- 로직 실행 ---
+
+# 1단계: 키워드 추출
+if submitted:
     if not link:
         st.warning("뉴스 링크를 입력해주세요.")
     elif start_date > end_date:
         st.error("종료일은 시작일보다 같거나 이후여야 합니다.")
     else:
-        with st.spinner("GPT로 키워드를 추출 중입니다..."):
+        with st.spinner("기준 기사를 분석하고 GPT로 키워드를 추출 중입니다..."):
             try:
-                title, content = extract_article_content(link)
-                default_keywords = extract_keywords_with_gpt(title, content)
-                st.session_state.title = title
-                st.session_state.content = content
-                st.session_state.default_keywords = default_keywords
+                # 동기/비동기 함수 실행
+                title, content = extract_initial_article_content(link)
+                st.session_state.keywords = asyncio.run(
+                    extract_keywords_with_gpt(title, content)
+                )
                 st.session_state.step = "keywords_ready"
+                st.rerun()  # 키워드 표시를 위해 스크립트 재실행
             except Exception as e:
-                st.error(f"❌ 키워드 추출 실패: {e}")
-                st.session_state.step = None
+                st.error(f"❌ 키워드 추출 중 오류 발생: {e}")
+                st.session_state.step = "initial"
 
-# 단계 2: 키워드 확인 및 뉴스 검색
+# 2단계: 키워드 확인 및 최종 리포트 생성
 if st.session_state.step == "keywords_ready":
-    st.markdown("### 🔑 추출된 키워드 확인 및 수정")
-    keywords_input = st.text_input(
-        "GPT가 추출한 키워드입니다. 필요시 수정하세요 (최대 10개, 띄어쓰기로 구분):",
-        value=', '.join(st.session_state.default_keywords),
-        key="keywords_input"
-    )
+    st.markdown("---")
+    st.markdown("### 🔑 AI가 추출한 핵심 키워드")
+    st.info(f"**추출된 키워드:** {', '.join(st.session_state.keywords)}")
 
-    if st.button("📡 뉴스 검색 및 요약 생성"):
-        with st.spinner("뉴스 수집 및 요약 중입니다..."):
+    with st.form("process_form"):
+        st.markdown(
+            "위 키워드를 바탕으로 관련 뉴스를 검색하고, 전체 내용을 분석하여 리포트를 생성합니다."
+        )
+        save_filename = st.text_input(
+            "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
+        )
+        process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary")
+
+    if process_button:
+        with st.spinner(
+            "관련 뉴스를 수집하고 AI가 분석/요약 중입니다. 이 작업은 몇 분 정도 소요될 수 있습니다..."
+        ):
             try:
-                keywords = [kw.strip() for kw in keywords_input.split() if kw.strip()]
-                if len(keywords) > 10:
-                    st.warning("⚠️ 키워드는 최대 10개까지만 사용됩니다.")
-                    keywords = keywords[:10]
-
-                # ✅ 날짜 포맷 변경 (filter 함수와 일치하도록)
-                s_date = start_date.strftime("%Y-%m-%d")
-                e_date = end_date.strftime("%Y-%m-%d")
-
-                # 뉴스 검색
-                news_items = search_news_naver(keywords, s_date, e_date, count)
-
-                # ✅ 날짜 필터링 적용
-                filtered_items = filter_news_by_date(news_items, s_date, e_date)
+                # 동기 작업: 뉴스 검색 및 필터링
+                news_items = search_news_naver(st.session_state.keywords)
+                filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
                 if not filtered_items:
-                    st.warning("❌ 날짜 조건에 맞는 뉴스가 없습니다.")
-                else:
-                    # ✅ 링크 추출도 필터링된 뉴스 기준
-                    links = [item['link'] for item in filtered_items]
-
-                    titles, contents, failed_links = [], [], []
-                    progress = st.progress(0)
-                    status = st.empty()
-                    for i, news_link in enumerate(links, 1):
-                        status.text(f"크롤링 중: [{i}/{len(links)}] {news_link}")
-                        title, content = extract_article(news_link)
-                        if title and content:
-                            titles.append(title)
-                            contents.append(content)
-                        else:
-                            failed_links.append(news_link)
-                        progress.progress(i / len(links))
-
-                    summary = summarize_news_articles(titles, contents)
-                    st.subheader("📝 요약 미리보기")
-                    st.markdown(f"<div style='white-space: pre-wrap'>{summary}</div>", unsafe_allow_html=True)
-
-                    # Word 파일 생성 (BytesIO로 저장)
-                    buffer = BytesIO()
-                    save_summary_to_word(
-                        summary,
-                        titles,
-                        links,
-                        filtered_items,  # ✅ 필터링된 뉴스만 저장
-                        keywords,
-                        output_stream=buffer,
-                        failed_links=failed_links
+                    st.warning(
+                        "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간을 조정해보세요."
                     )
-                    buffer.seek(0)
+                    st.stop()
 
-                    st.success("✅ Word 파일이 준비되었습니다.")
-                    st.info("💡 다운로드 버튼을 클릭하면 파일이 브라우저의 **다운로드 폴더**에 저장됩니다.\n\n📁 저장 위치를 직접 지정하고 싶다면, 브라우저 설정에서 '항상 저장 위치 묻기' 옵션을 켜주세요.")
+                # 비동기 작업: 병렬 크롤링, 개별 요약, 최종 종합
+                final_report, successful_results, failed_results = asyncio.run(
+                    run_analysis_and_synthesis_async(filtered_items)
+                )
 
-                    st.download_button(
-                        label="📥 요약 Word 파일 다운로드",
-                        data=buffer,
-                        file_name=save_filename + ".docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                if not final_report:
+                    st.error(
+                        "❌ 리포트를 생성하지 못했습니다. 요약 가능한 기사가 없습니다."
                     )
+                    st.stop()
 
-                    if failed_links:
-                        with st.expander("❌ 크롤링 실패한 뉴스 링크 목록"):
-                            for fl in failed_links:
-                                st.markdown(f"- {fl}")
+                # 결과 저장
+                st.session_state.final_report = final_report
+                st.session_state.successful_results = successful_results
+                st.session_state.failed_results = failed_results
+                st.session_state.save_filename = save_filename
+                st.session_state.step = "done"
+                st.rerun()
+
             except Exception as e:
-                st.error(f"🚫 오류가 발생했습니다: {str(e)}")
+                st.error(f"🚫 리포트 생성 중 심각한 오류가 발생했습니다: {e}")
+                st.session_state.step = "initial"
+
+
+# 3단계: 결과 표시 및 다운로드
+if st.session_state.step == "done":
+    st.markdown("---")
+    st.success("✅ AI 뉴스 분석 리포트 생성이 완료되었습니다!")
+
+    # Word 파일 생성 (메모리 내)
+    buffer = BytesIO()
+    save_summary_to_word(
+        st.session_state.final_report, st.session_state.successful_results, buffer
+    )
+    buffer.seek(0)
+
+    st.download_button(
+        label="📥 Word 리포트 다운로드",
+        data=buffer,
+        file_name=f"{st.session_state.save_filename}.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    with st.expander("📄 생성된 리포트 미리보기"):
+        st.markdown(st.session_state.final_report)
+
+    if st.session_state.failed_results:
+        with st.expander(
+            f"⚠️ 처리 실패한 뉴스 목록 ({len(st.session_state.failed_results)}개)"
+        ):
+            for item in st.session_state.failed_results:
+                st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
