@@ -185,7 +185,7 @@ async def summarize_individual_article_async(title, content):
 """
     try:
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[
                 {
                     "role": "system",
@@ -394,4 +394,5 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
 
