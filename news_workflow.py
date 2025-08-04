@@ -246,7 +246,7 @@ async def synthesize_final_report(summaries):
     try:
         # Gemini 모델 인스턴스 생성 (시스템 프롬프트 적용)
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro-latest",
+            model_name="gemini-1.5-flash-latest",
             system_instruction=system_prompt
         )
         # 비동기 API 호출
@@ -394,3 +394,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
