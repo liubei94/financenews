@@ -21,3 +21,6 @@ httpx
 
 # Progress bar for loops
 tqdm
+
+# Google Generative AI for advanced AI capabilities
+google-generativeai
