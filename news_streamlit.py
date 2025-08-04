@@ -77,9 +77,15 @@ if submitted:
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
     st.markdown("### 🔑 AI가 추출한 핵심 키워드")
-    st.info(f"**추출된 키워드:** {', '.join(st.session_state.keywords)}")
-
+    
     with st.form("process_form"):
+        # st.info 대신 st.multiselect를 사용하여 키워드 편집 기능 제공
+        edited_keywords = st.multiselect(
+            "아래 키워드를 편집하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
+            options=st.session_state.keywords,
+            default=st.session_state.keywords,
+        )
+
         st.markdown(
             "위 키워드를 바탕으로 관련 뉴스를 검색하고, 전체 내용을 분석하여 리포트를 생성합니다."
         )
@@ -89,17 +95,22 @@ if st.session_state.step == "keywords_ready":
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary")
 
     if process_button:
+        # 수정된 키워드 목록이 비어있는지 확인
+        if not edited_keywords:
+            st.warning("⚠️ 분석을 진행할 키워드를 하나 이상 입력해주세요.")
+            st.stop()
+
         with st.spinner(
             "관련 뉴스를 수집하고 AI가 분석/요약 중입니다. 이 작업은 몇 분 정도 소요될 수 있습니다..."
         ):
             try:
-                # 동기 작업: 뉴스 검색 및 필터링
-                news_items = search_news_naver(st.session_state.keywords)
+                # 동기 작업: 뉴스 검색 및 필터링 (수정된 키워드 사용)
+                news_items = search_news_naver(edited_keywords)
                 filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
                 if not filtered_items:
                     st.warning(
-                        "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간을 조정해보세요."
+                        "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간이나 키워드를 조정해보세요."
                     )
                     st.stop()
 
