@@ -3,6 +3,7 @@
 import requests
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 from docx import Document
@@ -22,6 +23,9 @@ load_dotenv()
 
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Gemini 클라이언트 설정 (구글 Generative AI)
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
@@ -51,7 +55,7 @@ def extract_initial_article_content(url):
 async def extract_keywords_with_gpt(title, content):
     """GPT를 사용해 비동기적으로 핵심 키워드를 추출합니다."""
     prompt = f"""
-다음은 뉴스의 제목과 본문입니다. 이 기사의 핵심 주제를 가장 잘 나타내는 키워드 3개를 한글로 추출해주세요.
+다음은 뉴스의 제목과 본문입니다. 이 기사의 핵심 주제를 가장 잘 나타내는 키워드를 최대 5개까지 한글로 추출해주세요.
 - 제목에 등장하는 단어나 표현을 우선 고려해 키워드를 선택해주세요.
 - 본문 전체를 참고하되, 주제를 잘 대표하는 단어를 뽑아주세요.
 - 각 키워드는 명사 형태로 간결하게 제시해주세요.
@@ -65,7 +69,7 @@ async def extract_keywords_with_gpt(title, content):
             messages=[
                 {
                     "role": "system",
-                    "content": "당신은 핵심 키워드 추출 전문가입니다. 가장 중요한 단어 3개를 정확히 추출하세요.",
+                    "content": "당신은 핵심 키워드 추출 전문가입니다. 가장 중요한 단어를 최대 5개까지 정확히 추출하세요.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -76,7 +80,8 @@ async def extract_keywords_with_gpt(title, content):
             re.sub(r"^\s*[\d\.\-]+\s*", "", kw).strip()
             for kw in keywords_text.split("\n")
         ]
-        return [kw for kw in cleaned_keywords if kw][:3]
+        # 추출된 키워드 중 공백이 아닌 것들을 최대 5개까지 반환
+        return [kw for kw in cleaned_keywords if kw][:5]
     except Exception as e:
         print(f"❌ GPT 키워드 추출 중 오류 발생: {e}")
         raise
@@ -212,45 +217,44 @@ async def process_article_task(item, session, semaphore):
             "summary": summary,
         }
 
-
 async def synthesize_final_report(summaries):
     full_summary_text = ""
     for i, summary_data in enumerate(summaries, 1):
         full_summary_text += f"### 뉴스 {i}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
-    prompt = f"""
-당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다. 여러 뉴스 기사의 핵심 요약본들을 바탕으로, 회사 CFO나 CEO가 의사결정을 위해 참고할 심층 분석 보고서를 작성합니다.
+    
+    #  Gemini에 전달할 시스템 프롬프트와 사용자 프롬프트
+    system_prompt = """
+당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다. 
+여러 뉴스 기사의 핵심 요약본들을 바탕으로, 회사 CFO나 CEO가 의사결정을 위해 참고할 심층 분석 보고서를 작성합니다.
 다음 구조를 반드시 지켜 보고서를 작성해주세요.
 1.  **📌 Executive Summary (핵심 요약)**
-    *   전체 상황을 1~2 문장으로 요약합니다.
+    * 전체 상황을 1~2 문장으로 요약합니다.
 2.  **📰 Key Developments (주요 동향 및 사실 분석)**
-    *   어떤 사건/행동이 있었는지 종합적으로 설명합니다.
-    *   공통적으로 드러나는 원인과 배경은 무엇입니까?
-    *   핵심적인 플레이어(인물, 기업, 기관)는 누구이며, 그들의 입장은 무엇입니까?
+    * 어떤 사건/행동이 있었는지 종합적으로 설명합니다.
+    * 공통적으로 드러나는 원인과 배경은 무엇입니까?
+    * 핵심적인 이해관계자(인물, 기업, 기관)는 누구이며, 그들의 입장은 무엇입니까?
 3.  **📊 Comparative Analysis (비교 분석 및 이슈 심층 탐구)**
-    *   기사들 간의 관점 차이나 상충되는 정보가 있다면 비교 분석합니다.
-    *   수치, 데이터, 정책 변화 등 중요한 포인트를 표(Table) 형식으로 정리하여 시각적 이해를 돕습니다. (필요시)
+    * 기사들 간의 관점 차이나 상충되는 정보가 있다면 비교 분석합니다.
+    * 수치, 데이터, 정책 변화 등 중요한 포인트를 표(Table) 형식으로 정리하여 시각적 이해를 돕습니다. (필요시)
 4.  **🧠 Conclusion & Strategic Implications (결론 및 전략적 시사점)**
-    *   이러한 흐름이 향후 시장/산업/정책에 미칠 영향은 무엇입니까?
-    *   우리 조직이 주의 깊게 관찰해야 할 리스크와 기회 요인은 무엇입니까?
-    *   독자가 얻어야 할 최종적인 통찰(Insight)을 제시합니다.
----
-{full_summary_text}
+    * 이러한 흐름이 향후 시장/산업/정책에 미칠 영향은 무엇입니까?
+    * 우리 조직이 주의 깊게 관찰해야 할 리스크와 기회 요인은 무엇입니까?
+    * 독자가 얻어야 할 최종적인 통찰(Insight)을 제시합니다.
 """
+    user_prompt = f"아래의 뉴스 요약본들을 바탕으로 분석 보고서를 작성해주세요.\n\n---## 요약본 시작 ##---\n\n{full_summary_text}"
+
     try:
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "당신은 여러 정보를 종합하여 깊이 있는 인사이트를 도출하는 전문 분석가입니다.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.7,
+        # Gemini 모델 인스턴스 생성 (시스템 프롬프트 적용)
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-pro-latest",
+            system_instruction=system_prompt
         )
-        return response.choices[0].message.content.strip()
+        # 비동기 API 호출
+        response = await model.generate_content_async(user_prompt)
+        # 결과 텍스트 반환
+        return response.text.strip()
     except Exception as e:
-        print(f"❌ 최종 보고서 생성 중 오류: {e}")
+        print(f"❌ 최종 보고서 생성 중 오류 (Gemini): {e}")
         raise
 
 
