@@ -105,72 +105,40 @@ if submitted:
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
     
-    # --- 설정값 세션 상태 초기화 ---
-    # 'all_keywords': 사용자가 추가한 키워드까지 포함하는, 선택 가능한 모든 옵션 목록
-    if 'all_keywords' not in st.session_state:
-        st.session_state.all_keywords = st.session_state.keywords[:]
-    # 'edited_keywords': 현재 UI에 선택되어 표시될 키워드 목록
-    if 'edited_keywords' not in st.session_state:
-        st.session_state.edited_keywords = st.session_state.keywords[:]
-    if 'num_to_search' not in st.session_state:
-        st.session_state.num_to_search = 30
-
-    # --- 키워드 편집 UI ---
-    st.markdown("### 🔑 AI가 추출한 핵심 키워드")
-    current_selection = st.multiselect(
-        "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
-        options=st.session_state.all_keywords,
-        default=st.session_state.edited_keywords,
-        key="keyword_multiselect"
-    )
-
-    # --- [수정된 부분] 키워드 변경 즉시 반영 로직 (버튼 삭제) ---
-    # 현재 위젯의 상태와 저장된 상태가 다를 경우 (추가 또는 삭제 시)
-    if current_selection != st.session_state.edited_keywords:
-        # 새로 입력된 키워드 찾기 (현재 선택 목록 - 전체 옵션 목록)
-        newly_added = set(current_selection) - set(st.session_state.all_keywords)
-        if newly_added:
-            # 새로 입력된 키워드가 있다면, 전체 옵션 목록에 추가
-            st.session_state.all_keywords.extend(list(newly_added))
-
-        # 현재 선택된 목록을 새로운 상태로 업데이트
-        st.session_state.edited_keywords = current_selection
-        # UI에 즉시 반영하기 위해 새로고침
-        st.rerun()
-    # --------------------------------------------------------
-        
-    st.markdown("---")
-    st.markdown("### ⚙️ 리포트 생성 설정")
-
-    # --- 기사 수 선택 및 동기화 UI ---
-    st.write("🔎 검색할 최대 뉴스 기사 수")
-    col1, col2 = st.columns([0.85, 0.15])
-    with col1:
-        slider_val = st.slider("검색할 최대 뉴스 기사 수", 1, 100, st.session_state.num_to_search, 1, label_visibility="collapsed")
-    with col2:
-        number_val = st.number_input("기사 수", 1, 100, st.session_state.num_to_search, 1, label_visibility="collapsed")
-    
-    if slider_val != st.session_state.num_to_search:
-        st.session_state.num_to_search = slider_val
-        st.rerun()
-    if number_val != st.session_state.num_to_search:
-        st.session_state.num_to_search = number_val
-        st.rerun()
-    
-    # --- 최종 제출 폼 ---
+    # 폼 내에서 모든 설정이 이루어지도록 구조를 단순화합니다.
     with st.form("process_form"):
-        # 최종 키워드 목록을 사용자에게 다시 한번 보여줌
-        st.markdown("**최종 분석 키워드:**")
-        st.info(", ".join(st.session_state.edited_keywords) or "키워드를 위에서 설정해주세요.")
+        st.markdown("### 🔑 AI가 추출한 핵심 키워드")
         
-        save_filename = st.text_input("💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트")
+        # st.multiselect는 form 내부에서 안정적으로 동작합니다.
+        edited_keywords = st.multiselect(
+            "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
+            options=st.session_state.keywords, # 최초 추출된 키워드를 기본 옵션으로 제공
+            default=st.session_state.keywords
+        )
+
+        st.markdown("---")
+        st.markdown("### ⚙️ 리포트 생성 설정")
+
+        # 안정성을 위해 st.number_input 하나만 사용합니다.
+        num_to_process = st.number_input(
+            "🔎 검색할 최대 뉴스 기사 수",
+            min_value=1,
+            max_value=100,
+            value=30,
+            step=1,
+            help="분석할 뉴스의 최대 개수를 선택합니다."
+        )
+
+        save_filename = st.text_input(
+            "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
+        )
+        
+        # 모든 설정값은 이 버튼을 눌렀을 때 한 번에 제출됩니다.
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary", use_container_width=True)
 
         if process_button:
-            final_keywords = st.session_state.edited_keywords
-            num_to_process = st.session_state.num_to_search
-
-            if not final_keywords:
+            # form 제출 시, edited_keywords와 num_to_process의 최종 값을 사용합니다.
+            if not edited_keywords:
                 st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력하거나 추가해주세요.")
                 st.stop()
 
@@ -185,7 +153,7 @@ if st.session_state.step == "keywords_ready":
             
             try:
                 status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
-                news_items = search_news_naver(final_keywords, display=num_to_process)
+                news_items = search_news_naver(edited_keywords, display=num_to_process)
                 filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
                 if not filtered_items:
@@ -242,4 +210,5 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
+
 
