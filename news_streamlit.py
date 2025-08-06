@@ -119,24 +119,34 @@ if st.session_state.step == "keywords_ready":
     with col2:
         if st.button("➕ 추가", use_container_width=True):
             if new_keyword and new_keyword.strip():
-                # 중복 추가 방지
                 if new_keyword.strip() not in st.session_state.final_keywords:
                     st.session_state.final_keywords.append(new_keyword.strip())
                     st.rerun()
 
-    # 2-2. 현재 확정된 키워드 목록과 삭제 버튼 표시
-    if st.session_state.final_keywords:
+    # --- [개선된 부분] 키워드 목록을 그리드 형태로 표시 ---
+    if 'final_keywords' in st.session_state and st.session_state.final_keywords:
         st.write("**현재 키워드 목록:**")
-        for i, keyword in enumerate(st.session_state.final_keywords):
-            col1, col2 = st.columns([0.9, 0.1])
-            with col1:
-                st.write(f"- {keyword}")
-            with col2:
-                if st.button("삭제", key=f"delete_{i}", use_container_width=True):
-                    st.session_state.final_keywords.pop(i)
-                    st.rerun()
+        
+        # 한 줄에 4개의 키워드를 표시
+        num_columns = 4
+        keyword_chunks = [st.session_state.final_keywords[i:i + num_columns] for i in range(0, len(st.session_state.final_keywords), num_columns)]
+
+        for chunk in keyword_chunks:
+            cols = st.columns(num_columns)
+            for i, keyword in enumerate(chunk):
+                with cols[i]:
+                    # 각 키워드와 삭제 버튼을 한 쌍으로 묶음
+                    idx_in_original_list = st.session_state.final_keywords.index(keyword)
+                    sub_cols = st.columns([0.7, 0.3])
+                    with sub_cols[0]:
+                        st.markdown(f"`{keyword}`") # 태그처럼 보이도록 스타일링
+                    with sub_cols[1]:
+                        if st.button("x", key=f"delete_{idx_in_original_list}", help=f"'{keyword}' 삭제"):
+                            st.session_state.final_keywords.pop(idx_in_original_list)
+                            st.rerun()
     else:
         st.warning("분석할 키워드가 없습니다. 위에서 추가해주세요.")
+    # --- 개선된 부분 끝 ---
 
     st.markdown("---")
 
@@ -229,3 +239,4 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
+
