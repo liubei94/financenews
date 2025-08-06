@@ -16,6 +16,10 @@ from news_workflow import (
     save_summary_to_word,
 )
 
+st.set_page_config(
+    page_title="AI 뉴스 분석 리포트 생성기", page_icon="📰", layout="wide"
+)
+
 # --- [추가된 부분] 커스텀 CSS ---
 # st.multiselect의 태그 내부 텍스트가 잘리지 않고 줄바꿈되도록 설정
 st.markdown("""
@@ -36,9 +40,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 # --------------------------------
 
-st.set_page_config(
-    page_title="AI 뉴스 분석 리포트 생성기", page_icon="📰", layout="wide"
-)
+
 st.title("📰 AI 뉴스 분석 Word 리포트 생성기")
 st.markdown(
     """
@@ -227,3 +229,4 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
+
