@@ -125,66 +125,66 @@ if st.session_state.step == "keywords_ready":
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary")
 
 
-if process_button:
-    # 수정된 키워드 목록이 비어있는지 확인
-    if not edited_keywords:
-        st.warning("⚠️ 분석을 진행할 키워드를 하나 이상 입력해주세요.")
-        st.stop()
+    if process_button:
+        # 수정된 키워드 목록이 비어있는지 확인
+        if not edited_keywords:
+            st.warning("⚠️ 분석을 진행할 키워드를 하나 이상 입력해주세요.")
+            st.stop()
 
-    # --- [추가된 부분] 프로그레스 바 및 상태 텍스트 초기화 ---
-    status_text = st.empty()
-    progress_bar = st.progress(0)
-    # ---------------------------------------------------
-    
-    # --- [추가된 부분] 콜백 함수 정의 ---
-    def update_progress(current, total, message=None):
-        progress_percentage = current / total
+        # --- [추가된 부분] 프로그레스 바 및 상태 텍스트 초기화 ---
+        status_text = st.empty()
+        progress_bar = st.progress(0)
+        # ---------------------------------------------------
         
-        # 메시지가 지정되지 않은 경우 기본 메시지 사용
-        if message is None:
-            message = f"📰 기사 처리 중... ({current}/{total})"
-
-        status_text.text(message)
-        progress_bar.progress(progress_percentage)
-    # ------------------------------------
-
-    # with st.spinner(...) 부분을 제거하고 아래 로직으로 대체
-    try:
-        # 1. 뉴스 검색 및 필터링
-        status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
-        news_items = search_news_naver(edited_keywords, display=num_to_search)
-        filtered_items = filter_news_by_date(news_items, start_date, end_date)
-
-        if not filtered_items:
-            st.warning(
-                "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간이나 키워드를 조정해보세요."
-            )
-            st.stop()
+        # --- [추가된 부분] 콜백 함수 정의 ---
+        def update_progress(current, total, message=None):
+            progress_percentage = current / total
             
-        # 2. 비동기 작업 실행 (콜백 함수 전달)
-        final_report, successful_results, failed_results = asyncio.run(
-            run_analysis_and_synthesis_async(filtered_items, progress_callback=update_progress)
-        )
+            # 메시지가 지정되지 않은 경우 기본 메시지 사용
+            if message is None:
+                message = f"📰 기사 처리 중... ({current}/{total})"
 
-        if not final_report:
-            st.error("❌ 리포트를 생성하지 못했습니다. 요약 가능한 기사가 없습니다.")
-            st.stop()
+            status_text.text(message)
+            progress_bar.progress(progress_percentage)
+        # ------------------------------------
 
-        # 3. 모든 작업 완료 후 UI 정리
-        status_text.text("🎉 모든 작업 완료! 리포트를 확인하세요.")
-        progress_bar.empty() # 프로그레스 바 숨기기
+        # with st.spinner(...) 부분을 제거하고 아래 로직으로 대체
+        try:
+            # 1. 뉴스 검색 및 필터링
+            status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
+            news_items = search_news_naver(edited_keywords, display=num_to_search)
+            filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
-        # 결과 저장
-        st.session_state.final_report = final_report
-        st.session_state.successful_results = successful_results
-        st.session_state.failed_results = failed_results
-        st.session_state.save_filename = save_filename
-        st.session_state.step = "done"
-        st.rerun()
+            if not filtered_items:
+                st.warning(
+                    "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간이나 키워드를 조정해보세요."
+                )
+                st.stop()
+                
+            # 2. 비동기 작업 실행 (콜백 함수 전달)
+            final_report, successful_results, failed_results = asyncio.run(
+                run_analysis_and_synthesis_async(filtered_items, progress_callback=update_progress)
+            )
 
-    except Exception as e:
-        st.error(f"🚫 리포트 생성 중 심각한 오류가 발생했습니다: {e}")
-        st.session_state.step = "initial"
+            if not final_report:
+                st.error("❌ 리포트를 생성하지 못했습니다. 요약 가능한 기사가 없습니다.")
+                st.stop()
+
+            # 3. 모든 작업 완료 후 UI 정리
+            status_text.text("🎉 모든 작업 완료! 리포트를 확인하세요.")
+            progress_bar.empty() # 프로그레스 바 숨기기
+
+            # 결과 저장
+            st.session_state.final_report = final_report
+            st.session_state.successful_results = successful_results
+            st.session_state.failed_results = failed_results
+            st.session_state.save_filename = save_filename
+            st.session_state.step = "done"
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"🚫 리포트 생성 중 심각한 오류가 발생했습니다: {e}")
+            st.session_state.step = "initial"
 
 
 # 3단계: 결과 표시 및 다운로드
