@@ -53,12 +53,11 @@ def extract_initial_article_content(url):
 
 
 async def extract_keywords_with_gpt(title, content):
-    """GPT를 사용해 비동기적으로 핵심 키워드를 추출합니다."""
+    """GPT를 사용해 비동기적으로 핵심 키워드를 추출합니다. (파싱 로직 강화)"""
     prompt = f"""
 다음은 뉴스의 제목과 본문입니다. 이 기사의 핵심 주제를 가장 잘 나타내는 키워드를 최대 5개까지 한글로 추출해주세요.
-- 제목에 등장하는 단어나 표현을 우선 고려해 키워드를 선택해주세요.
-- 본문 전체를 참고하되, 주제를 잘 대표하는 단어를 뽑아주세요.
 - 각 키워드는 명사 형태로 간결하게 제시해주세요.
+- 구분자는 쉼표(,) 또는 줄바꿈을 사용해주세요.
 
 제목: {title}
 본문: {content}
@@ -76,16 +75,26 @@ async def extract_keywords_with_gpt(title, content):
             temperature=0.2,
         )
         keywords_text = response.choices[0].message.content.strip()
+        
+        # --- [개선된 부분] 쉼표와 줄바꿈을 모두 처리하는 파싱 로직 ---
+        # 1. 먼저 줄바꿈으로 분리
+        lines = keywords_text.split('\n')
+        keywords_list = []
+        # 2. 각 줄을 다시 쉼표로 분리
+        for line in lines:
+            keywords_list.extend([kw.strip() for kw in line.split(',')])
+        
+        # 3. 정리 및 필터링
         cleaned_keywords = [
             re.sub(r"^\s*[\d\.\-]+\s*", "", kw).strip()
-            for kw in keywords_text.split("\n")
+            for kw in keywords_list if kw.strip()
         ]
-        # 추출된 키워드 중 공백이 아닌 것들을 최대 5개까지 반환
-        return [kw for kw in cleaned_keywords if kw][:5]
+        # --------------------------------------------------------
+
+        return cleaned_keywords[:5]
     except Exception as e:
         print(f"❌ GPT 키워드 추출 중 오류 발생: {e}")
         raise
-
 
 def search_news_naver(keywords, display=50):
     """네이버 API를 통해 관련 뉴스를 검색합니다."""
