@@ -1,3 +1,16 @@
+네, 알겠습니다. 제안해주신 **'추출된 키워드'와 '최종 확정 키워드'를 분리하여 처리하는 방식**은 현재 겪고 있는 문제를 해결할 수 있는 매우 훌륭하고 안정적인 접근법입니다.
+
+이전 방식들이 실패했던 근본적인 이유는, 하나의 위젯으로 '보여주는 기능'과 '자유롭게 편집하는 기능'을 동시에 구현하려다 보니 Streamlit의 상태 관리와 계속 충돌했기 때문입니다.
+
+사용자께서 제안해주신 대로, 두 기능을 명확히 분리하여 사용자가 혼동 없이, 그리고 오류 없이 키워드를 편집할 수 있는 새로운 인터페이스를 구현하겠습니다.
+
+-----
+
+### **`news_streamlit.py` (최종 수정본 전체 코드)**
+
+아래 코드는 제안해주신 새로운 방식을 완벽하게 반영한 최종 코드입니다.
+
+```python
 # news_streamlit.py
 
 import streamlit as st
@@ -84,18 +97,13 @@ if submitted:
     else:
         with st.spinner("기준 기사를 분석하고 GPT로 키워드를 추출 중입니다..."):
             try:
-                # 동기/비동기 함수 실행
                 title, content = extract_initial_article_content(link)
                 st.session_state.keywords = asyncio.run(
                     extract_keywords_with_gpt(title, content)
                 )
-                # 다음 단계를 위해 세션 상태 초기화
                 st.session_state.step = "keywords_ready"
-                # 이전 단계에서 사용했을 수 있는 세션 상태를 초기화하여 충돌 방지
-                if 'edited_keywords' in st.session_state:
-                    del st.session_state.edited_keywords
-                if 'num_to_search' in st.session_state:
-                    del st.session_state.num_to_search
+                # 다음 단계를 위해 'final_keywords'를 초기화
+                st.session_state.final_keywords = st.session_state.keywords[:]
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ 키워드 추출 중 오류 발생: {e}")
@@ -106,44 +114,66 @@ if submitted:
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
     
-    # 폼 내에서 모든 설정이 이루어지도록 구조를 단순화합니다.
-    with st.form("process_form"):
-        st.markdown("### 🔑 AI가 추출한 핵심 키워드")
-        
-        # st.multiselect는 form 내부에서 안정적으로 동작합니다.
-        # 사용자가 입력한 새 키워드는 이 위젯의 리턴값에 포함됩니다.
-        edited_keywords = st.multiselect(
-            "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
-            options=st.session_state.keywords, # 최초 추출된 키워드를 기본 옵션으로 제공
-            default=st.session_state.keywords
+    # --- 1. AI가 추출한 키워드 보여주기 ---
+    st.markdown("### 🔑 AI가 제안하는 핵심 키워드")
+    st.info(f"**추출된 키워드:** {', '.join(st.session_state.keywords)}")
+
+    # --- 2. 사용자가 최종 키워드를 편집하는 영역 ---
+    st.markdown("### ✍️ 분석에 사용할 최종 키워드 편집")
+    
+    # 2-1. 새 키워드 추가 UI
+    col1, col2 = st.columns([0.8, 0.2])
+    with col1:
+        new_keyword = st.text_input(
+            "새 키워드 추가", 
+            placeholder="추가할 키워드를 입력하세요.", 
+            label_visibility="collapsed"
         )
+    with col2:
+        if st.button("➕ 추가", use_container_width=True):
+            if new_keyword and new_keyword.strip():
+                # 중복 추가 방지
+                if new_keyword.strip() not in st.session_state.final_keywords:
+                    st.session_state.final_keywords.append(new_keyword.strip())
+                    st.rerun()
 
-        st.markdown("---")
+    # 2-2. 현재 확정된 키워드 목록과 삭제 버튼 표시
+    if st.session_state.final_keywords:
+        st.write("**현재 키워드 목록:**")
+        for i, keyword in enumerate(st.session_state.final_keywords):
+            col1, col2 = st.columns([0.9, 0.1])
+            with col1:
+                st.write(f"- {keyword}")
+            with col2:
+                if st.button("삭제", key=f"delete_{i}", use_container_width=True):
+                    st.session_state.final_keywords.pop(i)
+                    st.rerun()
+    else:
+        st.warning("분석할 키워드가 없습니다. 위에서 추가해주세요.")
+
+    st.markdown("---")
+
+    # --- 3. 최종 설정 및 제출 폼 ---
+    with st.form("process_form"):
         st.markdown("### ⚙️ 리포트 생성 설정")
-
-        # 안정성을 위해 st.number_input 하나만 사용합니다.
+        
         num_to_process = st.number_input(
             "🔎 검색할 최대 뉴스 기사 수",
-            min_value=1,
-            max_value=100,
-            value=30,
-            step=1,
-            help="분석할 뉴스의 최대 개수를 선택합니다."
+            min_value=1, max_value=100, value=30, step=1
         )
-
         save_filename = st.text_input(
             "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
         )
         
-        # 모든 설정값은 이 버튼을 눌렀을 때 한 번에 제출됩니다.
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary", use_container_width=True)
 
         if process_button:
-            # form 제출 시, edited_keywords와 num_to_process의 최종 값을 사용합니다.
-            if not edited_keywords:
+            final_keywords = st.session_state.final_keywords
+            if not final_keywords:
                 st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력하거나 추가해주세요.")
                 st.stop()
 
+            # (이하 프로그레스 바 및 비동기 처리 로직은 변경 없음)
             status_text = st.empty()
             progress_bar = st.progress(0)
             
@@ -155,7 +185,7 @@ if st.session_state.step == "keywords_ready":
             
             try:
                 status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
-                news_items = search_news_naver(edited_keywords, display=num_to_process)
+                news_items = search_news_naver(final_keywords, display=num_to_process)
                 filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
                 if not filtered_items:
@@ -212,3 +242,4 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
+```
