@@ -106,8 +106,10 @@ if st.session_state.step == "keywords_ready":
     st.markdown("---")
     
     # --- 설정값 세션 상태 초기화 ---
+    # 'all_keywords': 사용자가 추가한 키워드까지 포함하는, 선택 가능한 모든 옵션 목록
     if 'all_keywords' not in st.session_state:
         st.session_state.all_keywords = st.session_state.keywords[:]
+    # 'edited_keywords': 현재 UI에 선택되어 표시될 키워드 목록
     if 'edited_keywords' not in st.session_state:
         st.session_state.edited_keywords = st.session_state.keywords[:]
     if 'num_to_search' not in st.session_state:
@@ -115,23 +117,27 @@ if st.session_state.step == "keywords_ready":
 
     # --- 키워드 편집 UI ---
     st.markdown("### 🔑 AI가 추출한 핵심 키워드")
-    edited_keywords_from_ui = st.multiselect(
+    current_selection = st.multiselect(
         "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
         options=st.session_state.all_keywords,
         default=st.session_state.edited_keywords,
         key="keyword_multiselect"
     )
 
-    # '반영' 버튼을 눌렀을 때만 세션 상태를 업데이트하고 rerun
-    if st.button("🔄 키워드 변경사항 반영"):
-        # 사용자가 새로 입력한 키워드가 있는지 확인
-        newly_added = set(edited_keywords_from_ui) - set(st.session_state.all_keywords)
-        # 새로 입력한 키워드가 있다면, 마스터 목록(all_keywords)에 추가
+    # --- [수정된 부분] 키워드 변경 즉시 반영 로직 (버튼 삭제) ---
+    # 현재 위젯의 상태와 저장된 상태가 다를 경우 (추가 또는 삭제 시)
+    if current_selection != st.session_state.edited_keywords:
+        # 새로 입력된 키워드 찾기 (현재 선택 목록 - 전체 옵션 목록)
+        newly_added = set(current_selection) - set(st.session_state.all_keywords)
         if newly_added:
+            # 새로 입력된 키워드가 있다면, 전체 옵션 목록에 추가
             st.session_state.all_keywords.extend(list(newly_added))
-        # 현재 선택된 목록(edited_keywords)을 업데이트
-        st.session_state.edited_keywords = edited_keywords_from_ui
+
+        # 현재 선택된 목록을 새로운 상태로 업데이트
+        st.session_state.edited_keywords = current_selection
+        # UI에 즉시 반영하기 위해 새로고침
         st.rerun()
+    # --------------------------------------------------------
         
     st.markdown("---")
     st.markdown("### ⚙️ 리포트 생성 설정")
@@ -153,8 +159,9 @@ if st.session_state.step == "keywords_ready":
     
     # --- 최종 제출 폼 ---
     with st.form("process_form"):
+        # 최종 키워드 목록을 사용자에게 다시 한번 보여줌
         st.markdown("**최종 분석 키워드:**")
-        st.info(", ".join(st.session_state.edited_keywords) or "키워드를 위에서 설정하고 '변경사항 반영' 버튼을 눌러주세요.")
+        st.info(", ".join(st.session_state.edited_keywords) or "키워드를 위에서 설정해주세요.")
         
         save_filename = st.text_input("💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트")
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary", use_container_width=True)
@@ -235,3 +242,4 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
+
