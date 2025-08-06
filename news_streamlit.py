@@ -1,4 +1,4 @@
-# app.py
+# news_streamlit.py
 
 import streamlit as st
 import os
@@ -15,6 +15,26 @@ from news_workflow import (
     run_analysis_and_synthesis_async,
     save_summary_to_word,
 )
+
+# --- [추가된 부분] 커스텀 CSS ---
+# st.multiselect의 태그 내부 텍스트가 잘리지 않고 줄바꿈되도록 설정
+st.markdown("""
+    <style>
+        /* 선택된 키워드 태그의 높이를 자동으로 조절 */
+        .stMultiSelect [data-baseweb="tag"] {
+            height: auto !important;
+            padding-top: 6px;
+            padding-bottom: 6px;
+        }
+        /* 키워드 텍스트가 줄바꿈되도록 설정 */
+        .stMultiSelect [data-baseweb="tag"] span[title] {
+            white-space: normal !important; 
+            max-width: 100%;
+            display: inline-block;
+        }
+    </style>
+""", unsafe_allow_html=True)
+# --------------------------------
 
 st.set_page_config(
     page_title="AI 뉴스 분석 리포트 생성기", page_icon="📰", layout="wide"
@@ -79,63 +99,92 @@ if st.session_state.step == "keywords_ready":
     st.markdown("### 🔑 AI가 추출한 핵심 키워드")
     
     with st.form("process_form"):
-        # st.info 대신 st.multiselect를 사용하여 키워드 편집 기능 제공
+        # st.multiselect 위젯이 키워드를 개별 단위로 분리하여 모두 보여줍니다.
         edited_keywords = st.multiselect(
             "아래 키워드를 편집하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
-            options=st.session_state.keywords,
-            default=st.session_state.keywords,
+            options=st.session_state.keywords, # AI가 추출한 모든 키워드를 선택 옵션으로 제공
+            default=st.session_state.keywords, # 기본적으로 모든 키워드를 선택된 상태로 표시
+        )
+
+        # 검색할 뉴스 기사 수 선택 슬라이더
+        num_to_search = st.slider(
+            "🔎 검색할 최대 뉴스 기사 수",
+            min_value=10,
+            max_value=100,
+            value=30,
+            step=10,
+            help="분석할 뉴스의 최대 개수를 선택합니다. 많을수록 다양한 관점을 포함하지만 시간이 더 소요될 수 있습니다."
         )
 
         st.markdown(
-            "위 키워드를 바탕으로 관련 뉴스를 검색하고, 전체 내용을 분석하여 리포트를 생성합니다."
+            f"위 키워드를 바탕으로 관련 뉴스를 최대 **{num_to_search}개** 검색하고, 전체 내용을 분석하여 리포트를 생성합니다."
         )
         save_filename = st.text_input(
             "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
         )
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary")
 
-    if process_button:
-        # 수정된 키워드 목록이 비어있는지 확인
-        if not edited_keywords:
-            st.warning("⚠️ 분석을 진행할 키워드를 하나 이상 입력해주세요.")
+
+if process_button:
+    # 수정된 키워드 목록이 비어있는지 확인
+    if not edited_keywords:
+        st.warning("⚠️ 분석을 진행할 키워드를 하나 이상 입력해주세요.")
+        st.stop()
+
+    # --- [추가된 부분] 프로그레스 바 및 상태 텍스트 초기화 ---
+    status_text = st.empty()
+    progress_bar = st.progress(0)
+    # ---------------------------------------------------
+    
+    # --- [추가된 부분] 콜백 함수 정의 ---
+    def update_progress(current, total, message=None):
+        progress_percentage = current / total
+        
+        # 메시지가 지정되지 않은 경우 기본 메시지 사용
+        if message is None:
+            message = f"📰 기사 처리 중... ({current}/{total})"
+
+        status_text.text(message)
+        progress_bar.progress(progress_percentage)
+    # ------------------------------------
+
+    # with st.spinner(...) 부분을 제거하고 아래 로직으로 대체
+    try:
+        # 1. 뉴스 검색 및 필터링
+        status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
+        news_items = search_news_naver(edited_keywords, display=num_to_search)
+        filtered_items = filter_news_by_date(news_items, start_date, end_date)
+
+        if not filtered_items:
+            st.warning(
+                "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간이나 키워드를 조정해보세요."
+            )
+            st.stop()
+            
+        # 2. 비동기 작업 실행 (콜백 함수 전달)
+        final_report, successful_results, failed_results = asyncio.run(
+            run_analysis_and_synthesis_async(filtered_items, progress_callback=update_progress)
+        )
+
+        if not final_report:
+            st.error("❌ 리포트를 생성하지 못했습니다. 요약 가능한 기사가 없습니다.")
             st.stop()
 
-        with st.spinner(
-            "관련 뉴스를 수집하고 AI가 분석/요약 중입니다. 이 작업은 몇 분 정도 소요될 수 있습니다..."
-        ):
-            try:
-                # 동기 작업: 뉴스 검색 및 필터링 (수정된 키워드 사용)
-                news_items = search_news_naver(edited_keywords)
-                filtered_items = filter_news_by_date(news_items, start_date, end_date)
+        # 3. 모든 작업 완료 후 UI 정리
+        status_text.text("🎉 모든 작업 완료! 리포트를 확인하세요.")
+        progress_bar.empty() # 프로그레스 바 숨기기
 
-                if not filtered_items:
-                    st.warning(
-                        "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간이나 키워드를 조정해보세요."
-                    )
-                    st.stop()
+        # 결과 저장
+        st.session_state.final_report = final_report
+        st.session_state.successful_results = successful_results
+        st.session_state.failed_results = failed_results
+        st.session_state.save_filename = save_filename
+        st.session_state.step = "done"
+        st.rerun()
 
-                # 비동기 작업: 병렬 크롤링, 개별 요약, 최종 종합
-                final_report, successful_results, failed_results = asyncio.run(
-                    run_analysis_and_synthesis_async(filtered_items)
-                )
-
-                if not final_report:
-                    st.error(
-                        "❌ 리포트를 생성하지 못했습니다. 요약 가능한 기사가 없습니다."
-                    )
-                    st.stop()
-
-                # 결과 저장
-                st.session_state.final_report = final_report
-                st.session_state.successful_results = successful_results
-                st.session_state.failed_results = failed_results
-                st.session_state.save_filename = save_filename
-                st.session_state.step = "done"
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"🚫 리포트 생성 중 심각한 오류가 발생했습니다: {e}")
-                st.session_state.step = "initial"
+    except Exception as e:
+        st.error(f"🚫 리포트 생성 중 심각한 오류가 발생했습니다: {e}")
+        st.session_state.step = "initial"
 
 
 # 3단계: 결과 표시 및 다운로드
