@@ -98,45 +98,63 @@ if submitted:
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
     
-    # --- 최종 제출 폼 ---
+    # 세션 상태에 검색 기사 수 초기화
+    if 'num_to_search' not in st.session_state:
+        st.session_state.num_to_search = 30
+
     with st.form("process_form"):
         st.markdown("### 🔑 AI가 추출한 핵심 키워드")
         
-        # --- [개선된 부분 1] 직관적인 키워드 편집기 (multiselect) ---
+        # 이제 키워드가 개별 태그로 올바르게 표시됩니다.
         edited_keywords = st.multiselect(
             "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
             options=st.session_state.keywords,
-            default=st.session_state.keywords,
-            help="각 키워드 우측의 x를 누르면 삭제됩니다. 입력창에 새 키워드를 타이핑하고 Enter를 누르면 추가됩니다."
+            default=st.session_state.keywords
         )
-        # --------------------------------------------------------
 
         st.markdown("---")
         st.markdown("### ⚙️ 리포트 생성 설정")
 
-        # --- [개선된 부분 2] 검색 기사 수 슬라이더 복원 ---
-        num_to_search = st.slider(
-            "🔎 검색할 최대 뉴스 기사 수",
-            min_value=1,
-            max_value=100,
-            value=30,
-            step=1, # 1개 단위로 조정 가능
-            help="슬라이더를 움직이거나 좌우 화살표를 눌러 기사 수를 1개 단위로 정밀하게 조정할 수 있습니다."
-        )
+        # --- [개선된 부분] 슬라이더와 숫자 입력 연동 ---
+        st.write("🔎 검색할 최대 뉴스 기사 수")
+        col1, col2 = st.columns([0.85, 0.15])
+        with col1:
+            slider_val = st.slider(
+                "검색할 최대 뉴스 기사 수",
+                min_value=1, max_value=100,
+                value=st.session_state.num_to_search,
+                step=1, label_visibility="collapsed"
+            )
+        with col2:
+            number_val = st.number_input(
+                "기사 수",
+                min_value=1, max_value=100,
+                value=st.session_state.num_to_search,
+                step=1, label_visibility="collapsed"
+            )
+        
+        # 슬라이더나 숫자 입력의 변경을 세션 상태에 동기화
+        if slider_val != st.session_state.num_to_search:
+            st.session_state.num_to_search = slider_val
+            st.rerun()
+        if number_val != st.session_state.num_to_search:
+            st.session_state.num_to_search = number_val
+            st.rerun()
         # --------------------------------------------------
 
         save_filename = st.text_input(
             "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
         )
         
-        # 폼 제출 버튼
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary", use_container_width=True)
 
-        # 폼 제출 시 실행될 로직
         if process_button:
             if not edited_keywords:
                 st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력하거나 추가해주세요.")
                 st.stop()
+
+            # 연동된 최종 기사 수를 사용
+            num_to_process = st.session_state.num_to_search
 
             # (이하 프로그레스 바 및 비동기 처리 로직은 동일)
             status_text = st.empty()
@@ -151,7 +169,7 @@ if st.session_state.step == "keywords_ready":
             
             try:
                 status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
-                news_items = search_news_naver(edited_keywords, display=num_to_search)
+                news_items = search_news_naver(edited_keywords, display=num_to_process)
                 filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
                 if not filtered_items:
