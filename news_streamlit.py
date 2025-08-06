@@ -17,7 +17,7 @@ from news_workflow import (
 )
 
 st.set_page_config(
-    page_title="AI 뉴스 분석 리포트 생성기", page_icon="📰", layout="wide"
+    page_title="AI 뉴스 분석 리포트 생성기", page_icon="📰", layout="wide"    
 )
 
 # --- [추가된 부분] 커스텀 CSS ---
@@ -100,14 +100,12 @@ if submitted:
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
     
-    # 세션 상태에 검색 기사 수 초기화
     if 'num_to_search' not in st.session_state:
         st.session_state.num_to_search = 30
 
+    # with st.form(...) 블록은 위젯 배치와 최종 제출 로직만 담당
     with st.form("process_form"):
         st.markdown("### 🔑 AI가 추출한 핵심 키워드")
-        
-        # 이제 키워드가 개별 태그로 올바르게 표시됩니다.
         edited_keywords = st.multiselect(
             "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
             options=st.session_state.keywords,
@@ -117,33 +115,19 @@ if st.session_state.step == "keywords_ready":
         st.markdown("---")
         st.markdown("### ⚙️ 리포트 생성 설정")
 
-        # --- [개선된 부분] 슬라이더와 숫자 입력 연동 ---
         st.write("🔎 검색할 최대 뉴스 기사 수")
         col1, col2 = st.columns([0.85, 0.15])
         with col1:
             slider_val = st.slider(
-                "검색할 최대 뉴스 기사 수",
-                min_value=1, max_value=100,
-                value=st.session_state.num_to_search,
-                step=1, label_visibility="collapsed"
+                "검색할 최대 뉴스 기사 수", 1, 100, st.session_state.num_to_search, 1,
+                label_visibility="collapsed"
             )
         with col2:
             number_val = st.number_input(
-                "기사 수",
-                min_value=1, max_value=100,
-                value=st.session_state.num_to_search,
-                step=1, label_visibility="collapsed"
+                "기사 수", 1, 100, st.session_state.num_to_search, 1,
+                label_visibility="collapsed"
             )
         
-        # 슬라이더나 숫자 입력의 변경을 세션 상태에 동기화
-        if slider_val != st.session_state.num_to_search:
-            st.session_state.num_to_search = slider_val
-            st.rerun()
-        if number_val != st.session_state.num_to_search:
-            st.session_state.num_to_search = number_val
-            st.rerun()
-        # --------------------------------------------------
-
         save_filename = st.text_input(
             "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
         )
@@ -155,17 +139,15 @@ if st.session_state.step == "keywords_ready":
                 st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력하거나 추가해주세요.")
                 st.stop()
 
-            # 연동된 최종 기사 수를 사용
             num_to_process = st.session_state.num_to_search
-
-            # (이하 프로그레스 바 및 비동기 처리 로직은 동일)
+            
+            # (이하 프로그레스 바 및 비동기 처리 로직은 변경 없음)
             status_text = st.empty()
             progress_bar = st.progress(0)
             
             def update_progress(current, total, message=None):
                 progress_percentage = current / total
-                if message is None:
-                    message = f"📰 기사 처리 중... ({current}/{total})"
+                if message is None: message = f"📰 기사 처리 중... ({current}/{total})"
                 status_text.text(message)
                 progress_bar.progress(progress_percentage)
             
@@ -200,6 +182,15 @@ if st.session_state.step == "keywords_ready":
                 st.error(f"🚫 리포트 생성 중 심각한 오류가 발생했습니다: {e}")
                 st.session_state.step = "initial"
 
+    # --- [개선된 부분] 동기화 로직을 st.form 바깥으로 이동 ---
+    if slider_val != st.session_state.num_to_search:
+        st.session_state.num_to_search = slider_val
+        st.rerun()
+    if number_val != st.session_state.num_to_search:
+        st.session_state.num_to_search = number_val
+        st.rerun()
+    # --------------------------------------------------------
+
 
 # 3단계: 결과 표시 및 다운로드
 if st.session_state.step == "done":
@@ -229,4 +220,3 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
-
