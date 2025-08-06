@@ -93,74 +93,48 @@ if submitted:
                 st.error(f"❌ 키워드 추출 중 오류 발생: {e}")
                 st.session_state.step = "initial"
 
+
 # 2단계: 키워드 확인 및 최종 리포트 생성
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
-    st.markdown("### 🔑 AI가 추출한 핵심 키워드 (수정 가능)")
-
-    # --- 키워드 편집 UI (폼 바깥) ---
-    # 이 부분은 즉각적인 상호작용이 필요하므로 폼 외부에 위치합니다.
-    temp_keywords = st.session_state.keywords[:]
-    for i, keyword in enumerate(temp_keywords):
-        col1, col2 = st.columns([0.85, 0.15])
-        with col1:
-            # 각 키워드를 고유한 key를 가진 text_input으로 만듦
-            edited_keyword = st.text_input(
-                label=f"keyword_{i}",
-                value=keyword,
-                key=f"keyword_input_{i}",
-                label_visibility="collapsed"
-            )
-            # 입력값이 변경되면 세션 상태에 즉시 반영
-            if edited_keyword != st.session_state.keywords[i]:
-                st.session_state.keywords[i] = edited_keyword
-                st.rerun()
-
-        with col2:
-            # 삭제 버튼 (st.button은 form 바깥에서 사용)
-            if st.button("삭제", key=f"delete_keyword_{i}"):
-                st.session_state.keywords.pop(i)
-                st.rerun()
-
-    # 새 키워드 추가 기능
-    new_keyword = st.text_input("✨ 새 키워드 추가 (입력 후 Enter)")
-    if new_keyword:
-        st.session_state.keywords.append(new_keyword)
-        st.rerun()
-    # --- 키워드 편집 UI 끝 ---
     
-    st.markdown("---")
-
     # --- 최종 제출 폼 ---
-    # 이 부분은 여러 입력을 모아 한 번에 제출하기 위해 폼 내부에 위치합니다.
     with st.form("process_form"):
-        st.markdown("**최종 분석에 사용할 키워드:**")
-        # 편집이 완료된 키워드를 확인용으로 보여줌
-        if st.session_state.keywords:
-            st.info(", ".join(st.session_state.keywords))
-        else:
-            st.warning("분석할 키워드가 없습니다. 위에서 키워드를 추가해주세요.")
+        st.markdown("### 🔑 AI가 추출한 핵심 키워드")
+        
+        # --- [개선된 부분 1] 직관적인 키워드 편집기 (multiselect) ---
+        edited_keywords = st.multiselect(
+            "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
+            options=st.session_state.keywords,
+            default=st.session_state.keywords,
+            help="각 키워드 우측의 x를 누르면 삭제됩니다. 입력창에 새 키워드를 타이핑하고 Enter를 누르면 추가됩니다."
+        )
+        # --------------------------------------------------------
 
-        num_to_search = st.number_input(
+        st.markdown("---")
+        st.markdown("### ⚙️ 리포트 생성 설정")
+
+        # --- [개선된 부분 2] 검색 기사 수 슬라이더 복원 ---
+        num_to_search = st.slider(
             "🔎 검색할 최대 뉴스 기사 수",
             min_value=1,
             max_value=100,
             value=30,
-            step=1,
-            help="분석할 뉴스의 최대 개수를 선택합니다. 직접 숫자를 입력할 수도 있습니다."
+            step=1, # 1개 단위로 조정 가능
+            help="슬라이더를 움직이거나 좌우 화살표를 눌러 기사 수를 1개 단위로 정밀하게 조정할 수 있습니다."
         )
+        # --------------------------------------------------
 
         save_filename = st.text_input(
             "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
         )
         
         # 폼 제출 버튼
-        process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary")
+        process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary", use_container_width=True)
 
         # 폼 제출 시 실행될 로직
         if process_button:
-            final_keywords = st.session_state.keywords
-            if not final_keywords:
+            if not edited_keywords:
                 st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력하거나 추가해주세요.")
                 st.stop()
 
@@ -177,7 +151,7 @@ if st.session_state.step == "keywords_ready":
             
             try:
                 status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
-                news_items = search_news_naver(final_keywords, display=num_to_search)
+                news_items = search_news_naver(edited_keywords, display=num_to_search)
                 filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
                 if not filtered_items:
