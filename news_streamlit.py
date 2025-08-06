@@ -91,8 +91,9 @@ if submitted:
                 )
                 # 다음 단계를 위해 세션 상태 초기화
                 st.session_state.step = "keywords_ready"
-                st.session_state.edited_keywords = st.session_state.keywords[:]
-                st.session_state.all_keywords = st.session_state.keywords[:]
+                # 이전 단계에서 사용했을 수 있는 세션 상태를 초기화하여 충돌 방지
+                if 'edited_keywords' in st.session_state:
+                    del st.session_state.edited_keywords
                 if 'num_to_search' in st.session_state:
                     del st.session_state.num_to_search
                 st.rerun()
@@ -110,6 +111,7 @@ if st.session_state.step == "keywords_ready":
         st.markdown("### 🔑 AI가 추출한 핵심 키워드")
         
         # st.multiselect는 form 내부에서 안정적으로 동작합니다.
+        # 사용자가 입력한 새 키워드는 이 위젯의 리턴값에 포함됩니다.
         edited_keywords = st.multiselect(
             "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
             options=st.session_state.keywords, # 최초 추출된 키워드를 기본 옵션으로 제공
@@ -210,5 +212,3 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
-
-
