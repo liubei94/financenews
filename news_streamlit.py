@@ -100,47 +100,67 @@ if submitted:
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
     
+    # --- 설정값 세션 상태 초기화 ---
     if 'num_to_search' not in st.session_state:
         st.session_state.num_to_search = 30
+    # 사용자가 편집할 키워드를 'edited_keywords'라는 별도의 세션 상태로 관리
+    if 'edited_keywords' not in st.session_state:
+        st.session_state.edited_keywords = st.session_state.keywords[:]
 
-    # with st.form(...) 블록은 위젯 배치와 최종 제출 로직만 담당
-    with st.form("process_form"):
-        st.markdown("### 🔑 AI가 추출한 핵심 키워드")
-        edited_keywords = st.multiselect(
-            "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
-            options=st.session_state.keywords,
-            default=st.session_state.keywords
+    # --- 키워드 편집 UI (폼 바깥) ---
+    st.markdown("### 🔑 AI가 추출한 핵심 키워드")
+    edited_keywords_from_ui = st.multiselect(
+        "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
+        options=st.session_state.edited_keywords,
+        default=st.session_state.edited_keywords,
+        key="keyword_multiselect"
+    )
+    # multiselect의 변경 사항을 세션 상태에 즉시 반영
+    if edited_keywords_from_ui != st.session_state.edited_keywords:
+        st.session_state.edited_keywords = edited_keywords_from_ui
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("### ⚙️ 리포트 생성 설정")
+
+    # --- 기사 수 선택 UI (폼 바깥) ---
+    st.write("🔎 검색할 최대 뉴스 기사 수")
+    col1, col2 = st.columns([0.85, 0.15])
+    with col1:
+        slider_val = st.slider(
+            "검색할 최대 뉴스 기사 수", 1, 100, st.session_state.num_to_search, 1,
+            label_visibility="collapsed"
         )
-
-        st.markdown("---")
-        st.markdown("### ⚙️ 리포트 생성 설정")
-
-        st.write("🔎 검색할 최대 뉴스 기사 수")
-        col1, col2 = st.columns([0.85, 0.15])
-        with col1:
-            slider_val = st.slider(
-                "검색할 최대 뉴스 기사 수", 1, 100, st.session_state.num_to_search, 1,
-                label_visibility="collapsed"
-            )
-        with col2:
-            number_val = st.number_input(
-                "기사 수", 1, 100, st.session_state.num_to_search, 1,
-                label_visibility="collapsed"
-            )
-        
+    with col2:
+        number_val = st.number_input(
+            "기사 수", 1, 100, st.session_state.num_to_search, 1,
+            label_visibility="collapsed"
+        )
+    
+    # 동기화 로직
+    if slider_val != st.session_state.num_to_search:
+        st.session_state.num_to_search = slider_val
+        st.rerun()
+    if number_val != st.session_state.num_to_search:
+        st.session_state.num_to_search = number_val
+        st.rerun()
+    
+    # --- 최종 제출 폼 ---
+    with st.form("process_form"):
         save_filename = st.text_input(
             "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
         )
-        
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary", use_container_width=True)
 
         if process_button:
-            if not edited_keywords:
+            # 세션 상태에서 최종 설정값을 가져옴
+            final_keywords = st.session_state.edited_keywords
+            num_to_process = st.session_state.num_to_search
+
+            if not final_keywords:
                 st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력하거나 추가해주세요.")
                 st.stop()
 
-            num_to_process = st.session_state.num_to_search
-            
             # (이하 프로그레스 바 및 비동기 처리 로직은 변경 없음)
             status_text = st.empty()
             progress_bar = st.progress(0)
@@ -153,7 +173,7 @@ if st.session_state.step == "keywords_ready":
             
             try:
                 status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
-                news_items = search_news_naver(edited_keywords, display=num_to_process)
+                news_items = search_news_naver(final_keywords, display=num_to_process)
                 filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
                 if not filtered_items:
@@ -181,16 +201,6 @@ if st.session_state.step == "keywords_ready":
             except Exception as e:
                 st.error(f"🚫 리포트 생성 중 심각한 오류가 발생했습니다: {e}")
                 st.session_state.step = "initial"
-
-    # --- [개선된 부분] 동기화 로직을 st.form 바깥으로 이동 ---
-    if slider_val != st.session_state.num_to_search:
-        st.session_state.num_to_search = slider_val
-        st.rerun()
-    if number_val != st.session_state.num_to_search:
-        st.session_state.num_to_search = number_val
-        st.rerun()
-    # --------------------------------------------------------
-
 
 # 3단계: 결과 표시 및 다운로드
 if st.session_state.step == "done":
@@ -220,3 +230,4 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
+
