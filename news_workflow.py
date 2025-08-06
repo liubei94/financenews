@@ -258,21 +258,40 @@ async def synthesize_final_report(summaries):
         raise
 
 
-async def run_analysis_and_synthesis_async(filtered_items):
-    """Streamlit에서 호출할 메인 비동기 처리 함수"""
+async def run_analysis_and_synthesis_async(filtered_items, progress_callback=None):
+    """Streamlit에서 호출할 메인 비동기 처리 함수 (진행상황 콜백 추가)"""
     semaphore = asyncio.Semaphore(10)
+    successful_results = []
+    failed_results = []
+    total_items = len(filtered_items)
+
     async with httpx.AsyncClient() as session:
         tasks = [
             process_article_task(item, session, semaphore) for item in filtered_items
         ]
-        # Streamlit 환경에서는 tqdm이 콘솔에만 출력되므로 UI에는 직접 보이지 않음
-        results = await asyncio.gather(*tasks)
-
-    successful_results = [r for r in results if r and r["status"] == "success"]
-    failed_results = [r for r in results if not r or r["status"] == "failed"]
+        
+        # asyncio.as_completed를 사용하여 작업이 완료될 때마다 순회
+        for i, future in enumerate(asyncio.as_completed(tasks)):
+            result = await future
+            if result and result["status"] == "success":
+                successful_results.append(result)
+            else:
+                # 실패한 경우에도 None이 아닌 dict를 보장
+                if not result:
+                    result = {"status": "failed", "reason": "알 수 없는 오류", "link": ""}
+                failed_results.append(result)
+            
+            # progress_callback이 제공되면 호출하여 진행률 업데이트
+            if progress_callback:
+                progress_callback(i + 1, total_items)
 
     if not successful_results:
         return None, [], []
+
+    # 최종 보고서 생성 전, 콜백을 통해 상태 업데이트 (선택 사항)
+    if progress_callback:
+        progress_callback(total_items, total_items, "✅ 기사 처리 완료! 최종 보고서를 생성합니다...")
+
 
     final_report = await synthesize_final_report(successful_results)
     return final_report, successful_results, failed_results
@@ -394,5 +413,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
-
