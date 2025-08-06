@@ -16,12 +16,13 @@ from news_workflow import (
     save_summary_to_word,
 )
 
+# 1. st.set_page_config()를 가장 먼저 호출
 st.set_page_config(
-    page_title="AI 뉴스 분석 리포트 생성기", page_icon="📰", layout="wide"    
+    page_title="AI 뉴스 분석 리포트 생성기", page_icon="📰", layout="wide"
 )
 
-# --- [추가된 부분] 커스텀 CSS ---
-# st.multiselect의 태그 내부 텍스트가 잘리지 않고 줄바꿈되도록 설정
+# 2. 그 다음에 다른 st 명령어들을 배치
+# 커스텀 CSS: st.multiselect의 태그 내부 텍스트가 잘리지 않고 줄바꿈되도록 설정
 st.markdown("""
     <style>
         /* 선택된 키워드 태그의 높이를 자동으로 조절 */
@@ -38,7 +39,6 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
-# --------------------------------
 
 
 st.title("📰 AI 뉴스 분석 Word 리포트 생성기")
@@ -89,8 +89,13 @@ if submitted:
                 st.session_state.keywords = asyncio.run(
                     extract_keywords_with_gpt(title, content)
                 )
+                # 다음 단계를 위해 세션 상태 초기화
                 st.session_state.step = "keywords_ready"
-                st.rerun()  # 키워드 표시를 위해 스크립트 재실행
+                st.session_state.edited_keywords = st.session_state.keywords[:]
+                st.session_state.all_keywords = st.session_state.keywords[:]
+                if 'num_to_search' in st.session_state:
+                    del st.session_state.num_to_search
+                st.rerun()
             except Exception as e:
                 st.error(f"❌ 키워드 추출 중 오류 발생: {e}")
                 st.session_state.step = "initial"
@@ -100,58 +105,45 @@ if submitted:
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
     
-    # --- [수정된 부분] 키워드 목록을 2가지로 분리하여 초기화 ---
-    # 'all_keywords': 선택 가능한 모든 옵션 목록 (삭제되지 않음)
+    # --- 설정값 세션 상태 초기화 ---
     if 'all_keywords' not in st.session_state:
         st.session_state.all_keywords = st.session_state.keywords[:]
-    # 'edited_keywords': 현재 선택된 키워드 목록
     if 'edited_keywords' not in st.session_state:
         st.session_state.edited_keywords = st.session_state.keywords[:]
-    # --------------------------------------------------------
-
     if 'num_to_search' not in st.session_state:
         st.session_state.num_to_search = 30
 
-    # --- 키워드 편집 UI (폼 바깥) ---
+    # --- 키워드 편집 UI ---
     st.markdown("### 🔑 AI가 추출한 핵심 키워드")
-    current_selection = st.multiselect(
+    edited_keywords_from_ui = st.multiselect(
         "추출된 키워드입니다. 클릭하여 삭제하거나, 새로 입력 후 Enter를 눌러 추가할 수 있습니다.",
-        options=st.session_state.all_keywords,  # 옵션은 모든 키워드 목록을 사용
-        default=st.session_state.edited_keywords, # 기본 선택값은 편집된 목록을 사용
+        options=st.session_state.all_keywords,
+        default=st.session_state.edited_keywords,
         key="keyword_multiselect"
     )
 
-    # --- [수정된 부분] 키워드 변경 처리 로직 ---
-    if current_selection != st.session_state.edited_keywords:
+    # '반영' 버튼을 눌렀을 때만 세션 상태를 업데이트하고 rerun
+    if st.button("🔄 키워드 변경사항 반영"):
         # 사용자가 새로 입력한 키워드가 있는지 확인
-        newly_added = set(current_selection) - set(st.session_state.all_keywords)
+        newly_added = set(edited_keywords_from_ui) - set(st.session_state.all_keywords)
         # 새로 입력한 키워드가 있다면, 마스터 목록(all_keywords)에 추가
         if newly_added:
             st.session_state.all_keywords.extend(list(newly_added))
-
         # 현재 선택된 목록(edited_keywords)을 업데이트
-        st.session_state.edited_keywords = current_selection
+        st.session_state.edited_keywords = edited_keywords_from_ui
         st.rerun()
-    # ---------------------------------------------
-
+        
     st.markdown("---")
     st.markdown("### ⚙️ 리포트 생성 설정")
 
-    # --- 기사 수 선택 UI (폼 바깥) ---
+    # --- 기사 수 선택 및 동기화 UI ---
     st.write("🔎 검색할 최대 뉴스 기사 수")
     col1, col2 = st.columns([0.85, 0.15])
     with col1:
-        slider_val = st.slider(
-            "검색할 최대 뉴스 기사 수", 1, 100, st.session_state.num_to_search, 1,
-            label_visibility="collapsed"
-        )
+        slider_val = st.slider("검색할 최대 뉴스 기사 수", 1, 100, st.session_state.num_to_search, 1, label_visibility="collapsed")
     with col2:
-        number_val = st.number_input(
-            "기사 수", 1, 100, st.session_state.num_to_search, 1,
-            label_visibility="collapsed"
-        )
+        number_val = st.number_input("기사 수", 1, 100, st.session_state.num_to_search, 1, label_visibility="collapsed")
     
-    # 동기화 로직
     if slider_val != st.session_state.num_to_search:
         st.session_state.num_to_search = slider_val
         st.rerun()
@@ -161,13 +153,13 @@ if st.session_state.step == "keywords_ready":
     
     # --- 최종 제출 폼 ---
     with st.form("process_form"):
-        save_filename = st.text_input(
-            "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
-        )
+        st.markdown("**최종 분석 키워드:**")
+        st.info(", ".join(st.session_state.edited_keywords) or "키워드를 위에서 설정하고 '변경사항 반영' 버튼을 눌러주세요.")
+        
+        save_filename = st.text_input("💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트")
         process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary", use_container_width=True)
 
         if process_button:
-            # 최종 분석에는 현재 '선택된' 키워드 목록을 사용
             final_keywords = st.session_state.edited_keywords
             num_to_process = st.session_state.num_to_search
 
@@ -175,7 +167,6 @@ if st.session_state.step == "keywords_ready":
                 st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력하거나 추가해주세요.")
                 st.stop()
 
-            # (이하 프로그레스 바 및 비동기 처리 로직은 변경 없음)
             status_text = st.empty()
             progress_bar = st.progress(0)
             
@@ -244,5 +235,3 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
-
-
