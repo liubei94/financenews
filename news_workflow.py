@@ -1,5 +1,3 @@
-# news_workflow.py
-
 import requests
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
@@ -75,19 +73,20 @@ async def extract_keywords_with_gpt(title, content):
             temperature=0.2,
         )
         keywords_text = response.choices[0].message.content.strip()
-        
+
         # --- [개선된 부분] 쉼표와 줄바꿈을 모두 처리하는 파싱 로직 ---
         # 1. 먼저 줄바꿈으로 분리
-        lines = keywords_text.split('\n')
+        lines = keywords_text.split("\n")
         keywords_list = []
         # 2. 각 줄을 다시 쉼표로 분리
         for line in lines:
-            keywords_list.extend([kw.strip() for kw in line.split(',')])
-        
+            keywords_list.extend([kw.strip() for kw in line.split(",")])
+
         # 3. 정리 및 필터링
         cleaned_keywords = [
             re.sub(r"^\s*[\d\.\-]+\s*", "", kw).strip()
-            for kw in keywords_list if kw.strip()
+            for kw in keywords_list
+            if kw.strip()
         ]
         # --------------------------------------------------------
 
@@ -95,6 +94,7 @@ async def extract_keywords_with_gpt(title, content):
     except Exception as e:
         print(f"❌ GPT 키워드 추출 중 오류 발생: {e}")
         raise
+
 
 def search_news_naver(keywords, display=50):
     """네이버 API를 통해 관련 뉴스를 검색합니다."""
@@ -226,11 +226,12 @@ async def process_article_task(item, session, semaphore):
             "summary": summary,
         }
 
+
 async def synthesize_final_report(summaries):
     full_summary_text = ""
     for i, summary_data in enumerate(summaries, 1):
         full_summary_text += f"### 뉴스 {i}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
-    
+
     #  Gemini에 전달할 시스템 프롬프트와 사용자 프롬프트
     system_prompt = """
 당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다. 
@@ -255,8 +256,7 @@ async def synthesize_final_report(summaries):
     try:
         # Gemini 모델 인스턴스 생성 (시스템 프롬프트 적용)
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash-latest",
-            system_instruction=system_prompt
+            model_name="gemini-1.5-flash-latest", system_instruction=system_prompt
         )
         # 비동기 API 호출
         response = await model.generate_content_async(user_prompt)
@@ -278,7 +278,7 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
         tasks = [
             process_article_task(item, session, semaphore) for item in filtered_items
         ]
-        
+
         # asyncio.as_completed를 사용하여 작업이 완료될 때마다 순회
         for i, future in enumerate(asyncio.as_completed(tasks)):
             result = await future
@@ -287,9 +287,13 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
             else:
                 # 실패한 경우에도 None이 아닌 dict를 보장
                 if not result:
-                    result = {"status": "failed", "reason": "알 수 없는 오류", "link": ""}
+                    result = {
+                        "status": "failed",
+                        "reason": "알 수 없는 오류",
+                        "link": "",
+                    }
                 failed_results.append(result)
-            
+
             # progress_callback이 제공되면 호출하여 진행률 업데이트
             if progress_callback:
                 progress_callback(i + 1, total_items)
@@ -299,8 +303,9 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
 
     # 최종 보고서 생성 전, 콜백을 통해 상태 업데이트 (선택 사항)
     if progress_callback:
-        progress_callback(total_items, total_items, "✅ 기사 처리 완료! 최종 보고서를 생성합니다...")
-
+        progress_callback(
+            total_items, total_items, "✅ 기사 처리 완료! 최종 보고서를 생성합니다..."
+        )
 
     final_report = await synthesize_final_report(successful_results)
     return final_report, successful_results, failed_results
