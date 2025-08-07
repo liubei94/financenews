@@ -253,7 +253,7 @@ async def synthesize_final_report(summaries):
         # INFO: 사용자가 요청한 'gemini-2.5-flash'는 현재 사용할 수 없는 모델명일 가능성이 높습니다.
         # 코드 실행 오류를 방지하기 위해, 현재 사용 가능한 최신 고성능 모델인 'gemini-1.5-pro-latest'로 대체합니다.
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro-latest", system_instruction=system_prompt
+            model_name="gemini-2.5-flash", system_instruction=system_prompt
         )
         response = await model.generate_content_async(user_prompt)
         return response.text.strip()
@@ -418,3 +418,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
