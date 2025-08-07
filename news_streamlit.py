@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import os
 from datetime import datetime, date
@@ -31,22 +29,53 @@ st.markdown(
         .tags-container {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px; /* 태그 사이의 간격 */
+            gap: 10px; /* 태그 사이의 간격 */
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            background-color: #fcfcfc;
             margin-bottom: 1rem;
         }
-        /* 개별 태그 스타일 */
-        .tag-item {
-            display: inline-flex;
+        /* 개별 태그와 삭제 버튼을 묶는 div */
+        .tag-wrapper {
+            display: flex;
             align-items: center;
             background-color: #F0F2F6; /* 스트림릿과 유사한 연한 회색 */
             color: #31333F; /* 기본 텍스트 색상 */
-            padding: 6px 12px;
-            border-radius: 16px; /* 둥근 모서리 */
+            padding: 6px 4px 6px 12px;
+            border-radius: 8px; /* 둥근 모서리 */
             font-size: 14px;
-            font-weight: 400;
+            font-weight: 500;
             border: 1px solid #DCDCDC; /* 연한 테두리 */
+            line-height: 1;
         }
-        /* 태그 안의 삭제 버튼 (st.button은 직접 스타일링이 어려워 이 방식은 사용하지 않음) */
+        .tag-wrapper span {
+            margin-right: 8px; /* 텍스트와 x버튼 사이 간격 */
+        }
+        /* Streamlit 버튼의 기본 스타일을 오버라이드하여 x 버튼처럼 보이게 함 */
+        div[data-testid="stButton"] > button {
+            background-color: transparent;
+            border: none;
+            color: #888;
+            padding: 0;
+            margin: 0;
+            line-height: 1;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        div[data-testid="stButton"] > button:hover {
+            color: #ff4b4b;
+            background-color: transparent;
+            border: none;
+        }
+        div[data-testid="stButton"] > button:focus {
+            box-shadow: none !important;
+            background-color: transparent !important;
+            border: none !important;
+        }
     </style>
 """,
     unsafe_allow_html=True,
@@ -102,7 +131,6 @@ if submitted:
                     extract_keywords_with_gpt(title, content)
                 )
                 st.session_state.step = "keywords_ready"
-                # 다음 단계를 위해 'final_keywords'를 초기화
                 st.session_state.final_keywords = st.session_state.keywords[:]
                 st.rerun()
             except Exception as e:
@@ -118,9 +146,6 @@ if st.session_state.step == "keywords_ready":
     st.info(f"**추천 키워드:** {', '.join(st.session_state.keywords)}")
 
     st.markdown("### ✍️ 분석에 사용할 최종 키워드 편집")
-    st.write(
-        "키워드를 직접 추가하거나, 각 키워드 옆의 `x` 버튼을 눌러 삭제할 수 있습니다."
-    )
 
     # --- [개선된 부분] 태그 스타일 UI 로직 ---
 
@@ -129,45 +154,50 @@ if st.session_state.step == "keywords_ready":
         new_kw = st.session_state.new_keyword_input.strip()
         if new_kw and new_kw not in st.session_state.final_keywords:
             st.session_state.final_keywords.append(new_kw)
-            st.session_state.new_keyword_input = ""  # 입력창 비우기
+            st.session_state.new_keyword_input = ""
 
     # 2. 키워드 삭제 콜백 함수
     def delete_keyword(keyword_to_delete):
         if keyword_to_delete in st.session_state.final_keywords:
             st.session_state.final_keywords.remove(keyword_to_delete)
 
-    # 3. 새 키워드 입력창
-    st.text_input(
-        "새 키워드 추가 후 Enter",
-        key="new_keyword_input",
-        on_change=add_keyword,
-        placeholder="키워드를 입력하고 Enter를 누르세요",
-    )
+    # 3. 현재 키워드들을 태그 형태로 표시할 컨테이너
+    st.write("현재 키워드 목록:")
+    container = st.container()
+    with container:
+        # HTML과 CSS를 사용하여 태그 컨테이너 생성
+        tags_html = '<div class="tags-container">'
 
-    # 4. 현재 키워드들을 태그 형태로 표시
-    if "final_keywords" in st.session_state and st.session_state.final_keywords:
-        cols = st.columns(6)  # 한 줄에 최대 6개의 태그를 표시
-        col_idx = 0
-        for keyword in st.session_state.final_keywords:
-            with cols[col_idx]:
-                # 각 키워드와 삭제 버튼을 한 쌍으로 묶음
-                sub_cols = st.columns([0.8, 0.2])
-                with sub_cols[0]:
+        # 키워드를 표시할 열 생성 (삭제 버튼을 위해)
+        if "final_keywords" in st.session_state and st.session_state.final_keywords:
+            num_cols = len(st.session_state.final_keywords)
+            cols = st.columns(num_cols)
+            for i, keyword in enumerate(st.session_state.final_keywords):
+                with cols[i]:
+                    # 각 키워드와 삭제 버튼을 HTML/CSS로 래핑하여 시각적 통일성 부여
                     st.markdown(
-                        f'<div class="tag-item">{keyword}</div>', unsafe_allow_html=True
+                        f'<div class="tag-wrapper"><span>{keyword}</span>',
+                        unsafe_allow_html=True,
                     )
-                with sub_cols[1]:
                     st.button(
-                        "x",
+                        "×",
                         key=f"delete_{keyword}",
                         on_click=delete_keyword,
                         args=(keyword,),
                         help=f"'{keyword}' 삭제",
                     )
+                    st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.warning("분석할 키워드가 없습니다. 아래에서 추가해주세요.")
 
-            col_idx = (col_idx + 1) % 6
-    else:
-        st.warning("분석할 키워드가 없습니다. 위에서 추가해주세요.")
+    # 4. 새 키워드 입력창
+    st.text_input(
+        "새 키워드 추가",
+        key="new_keyword_input",
+        on_change=add_keyword,
+        placeholder="키워드 입력 후 Enter...",
+        label_visibility="collapsed",
+    )
     # --- 개선된 부분 끝 ---
 
     st.markdown("---")
