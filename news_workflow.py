@@ -30,7 +30,7 @@ client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Gemini 클라이언트 설정 (환경 변수에서 API 키 자동 로드)
 # genai.configure()는 최상위에서 한 번만 호출하면 됩니다.
 # API Reference의 client = genai.Client()는 함수 내에서 호출됩니다.
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
@@ -445,3 +445,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
