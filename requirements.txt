@@ -24,3 +24,5 @@ tqdm
 
 # Google Generative AI for advanced AI capabilities
 google-generativeai
+google-genai
+
