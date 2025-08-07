@@ -1,10 +1,9 @@
-# news_streamlit.py
-
 import streamlit as st
 import os
 from datetime import datetime, date
 from io import BytesIO
 import asyncio
+import re
 
 # 최적화된 백엔드 워크플로우 함수들을 import
 from news_workflow import (
@@ -22,23 +21,24 @@ st.set_page_config(
 )
 
 # 2. 그 다음에 다른 st 명령어들을 배치
-# 커스텀 CSS: st.multiselect의 태그 내부 텍스트가 잘리지 않고 줄바꿈되도록 설정
-st.markdown("""
+# (기존 멀티셀렉트 CSS는 더 이상 필요 없으므로 제거 또는 주석 처리 가능하나, 다른 곳에서 사용할 수 있으므로 유지)
+st.markdown(
+    """
     <style>
-        /* 선택된 키워드 태그의 높이를 자동으로 조절 */
         .stMultiSelect [data-baseweb="tag"] {
             height: auto !important;
             padding-top: 6px;
             padding-bottom: 6px;
         }
-        /* 키워드 텍스트가 줄바꿈되도록 설정 */
         .stMultiSelect [data-baseweb="tag"] span[title] {
             white-space: normal !important; 
             max-width: 100%;
             display: inline-block;
         }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 st.title("📰 AI 뉴스 분석 Word 리포트 생성기")
@@ -72,6 +72,7 @@ if "step" not in st.session_state:
     st.session_state.final_report = None
     st.session_state.successful_results = []
     st.session_state.failed_results = []
+    st.session_state.edited_keywords_str = ""
 
 # --- 로직 실행 ---
 
@@ -88,9 +89,11 @@ if submitted:
                 st.session_state.keywords = asyncio.run(
                     extract_keywords_with_gpt(title, content)
                 )
+                # 추출된 키워드를 텍스트 입력창의 초기값으로 설정
+                st.session_state.edited_keywords_str = ", ".join(
+                    st.session_state.keywords
+                )
                 st.session_state.step = "keywords_ready"
-                # 다음 단계를 위해 'final_keywords'를 초기화
-                st.session_state.final_keywords = st.session_state.keywords[:]
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ 키워드 추출 중 오류 발생: {e}")
@@ -100,101 +103,83 @@ if submitted:
 # 2단계: 키워드 확인 및 최종 리포트 생성
 if st.session_state.step == "keywords_ready":
     st.markdown("---")
-    
+
     # --- 1. AI가 추출한 키워드 보여주기 ---
     st.markdown("### 🔑 AI가 제안하는 핵심 키워드")
-    st.info(f"**추출된 키워드:** {', '.join(st.session_state.keywords)}")
+    st.info(f"**추천 키워드:** {', '.join(st.session_state.keywords)}")
 
-    # --- 2. 사용자가 최종 키워드를 편집하는 영역 ---
+    # --- 2. [수정된 부분] 사용자가 최종 키워드를 텍스트 상자에서 직접 편집 ---
     st.markdown("### ✍️ 분석에 사용할 최종 키워드 편집")
-    
-    # 2-1. 새 키워드 추가 UI
-    col1, col2 = st.columns([0.8, 0.2])
-    with col1:
-        new_keyword = st.text_input(
-            "새 키워드 추가", 
-            placeholder="추가할 키워드를 입력하세요.", 
-            label_visibility="collapsed"
-        )
-    with col2:
-        if st.button("➕ 추가", use_container_width=True):
-            if new_keyword and new_keyword.strip():
-                if new_keyword.strip() not in st.session_state.final_keywords:
-                    st.session_state.final_keywords.append(new_keyword.strip())
-                    st.rerun()
 
-    # --- [개선된 부분] 키워드 목록을 그리드 형태로 표시 ---
-    if 'final_keywords' in st.session_state and st.session_state.final_keywords:
-        st.write("**현재 키워드 목록:**")
-        
-        # 한 줄에 4개의 키워드를 표시
-        num_columns = 4
-        keyword_chunks = [st.session_state.final_keywords[i:i + num_columns] for i in range(0, len(st.session_state.final_keywords), num_columns)]
-
-        for chunk in keyword_chunks:
-            cols = st.columns(num_columns)
-            for i, keyword in enumerate(chunk):
-                with cols[i]:
-                    # 각 키워드와 삭제 버튼을 한 쌍으로 묶음
-                    idx_in_original_list = st.session_state.final_keywords.index(keyword)
-                    sub_cols = st.columns([0.7, 0.3])
-                    with sub_cols[0]:
-                        st.markdown(f"`{keyword}`") # 태그처럼 보이도록 스타일링
-                    with sub_cols[1]:
-                        if st.button("x", key=f"delete_{idx_in_original_list}", help=f"'{keyword}' 삭제"):
-                            st.session_state.final_keywords.pop(idx_in_original_list)
-                            st.rerun()
-    else:
-        st.warning("분석할 키워드가 없습니다. 위에서 추가해주세요.")
-    # --- 개선된 부분 끝 ---
+    # st.text_input을 사용하여 키워드를 한 번에 편집
+    edited_keywords_str = st.text_input(
+        "아래 텍스트 상자에서 키워드를 직접 수정, 추가, 삭제하세요 (쉼표(,)로 구분).",
+        value=st.session_state.edited_keywords_str,  # 세션 상태를 이용해 값 유지
+        key="keywords_input",  # 키를 통해 값에 접근
+    )
+    # --- 수정된 부분 끝 ---
 
     st.markdown("---")
 
     # --- 3. 최종 설정 및 제출 폼 ---
     with st.form("process_form"):
         st.markdown("### ⚙️ 리포트 생성 설정")
-        
+
         num_to_process = st.number_input(
-            "🔎 검색할 최대 뉴스 기사 수",
-            min_value=1, max_value=100, value=30, step=1
+            "🔎 검색할 최대 뉴스 기사 수", min_value=1, max_value=100, value=30, step=1
         )
         save_filename = st.text_input(
             "💾 저장할 파일 이름 (확장자 제외)", "AI_뉴스분석_리포트"
         )
-        
-        process_button = st.form_submit_button("2️⃣ 리포트 생성 시작", type="primary", use_container_width=True)
+
+        process_button = st.form_submit_button(
+            "2️⃣ 리포트 생성 시작", type="primary", use_container_width=True
+        )
 
         if process_button:
-            final_keywords = st.session_state.final_keywords
+            # [수정된 부분] 텍스트 입력 상자의 최종 값을 파싱하여 키워드 리스트 생성
+            final_keywords = [
+                kw.strip()
+                for kw in st.session_state.keywords_input.split(",")
+                if kw.strip()
+            ]
+
             if not final_keywords:
-                st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력하거나 추가해주세요.")
+                st.error("⚠️ 분석을 진행할 키워드를 하나 이상 입력해주세요.")
                 st.stop()
 
             # (이하 프로그레스 바 및 비동기 처리 로직은 변경 없음)
             status_text = st.empty()
             progress_bar = st.progress(0)
-            
+
             def update_progress(current, total, message=None):
                 progress_percentage = current / total
-                if message is None: message = f"📰 기사 처리 중... ({current}/{total})"
+                if message is None:
+                    message = f"📰 기사 처리 중... ({current}/{total})"
                 status_text.text(message)
                 progress_bar.progress(progress_percentage)
-            
+
             try:
                 status_text.text("네이버에서 관련 뉴스를 검색 중입니다...")
                 news_items = search_news_naver(final_keywords, display=num_to_process)
                 filtered_items = filter_news_by_date(news_items, start_date, end_date)
 
                 if not filtered_items:
-                    st.warning("❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간이나 키워드를 조정해보세요.")
+                    st.warning(
+                        "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간이나 키워드를 조정해보세요."
+                    )
                     st.stop()
-                    
+
                 final_report, successful_results, failed_results = asyncio.run(
-                    run_analysis_and_synthesis_async(filtered_items, progress_callback=update_progress)
+                    run_analysis_and_synthesis_async(
+                        filtered_items, progress_callback=update_progress
+                    )
                 )
 
                 if not final_report:
-                    st.error("❌ 리포트를 생성하지 못했습니다. 요약 가능한 기사가 없습니다.")
+                    st.error(
+                        "❌ 리포트를 생성하지 못했습니다. 요약 가능한 기사가 없습니다."
+                    )
                     st.stop()
 
                 status_text.text("🎉 모든 작업 완료! 리포트를 확인하세요.")
@@ -239,4 +224,3 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
-
