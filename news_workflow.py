@@ -1,9 +1,12 @@
-
-
 import requests
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
-import google.generativeai as genai
+
+# --- [수정된 부분] Gemini API Reference에 따른 import ---
+from google import genai
+from google.generativeai import types
+
+# ---------------------------------------------------
 import os
 from dotenv import load_dotenv
 from docx import Document
@@ -24,7 +27,9 @@ load_dotenv()
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Gemini 클라이언트 설정 (구글 Generative AI)
+# Gemini 클라이언트 설정 (환경 변수에서 API 키 자동 로드)
+# genai.configure()는 최상위에서 한 번만 호출하면 됩니다.
+# API Reference의 client = genai.Client()는 함수 내에서 호출됩니다.
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
@@ -49,7 +54,7 @@ def extract_initial_article_content(url):
         return title, content
     except requests.RequestException as e:
         print(f"❌ 초기 기사 추출 실패: {e}")
-        raise  # 에러를 다시 발생시켜 상위 호출자(Streamlit)가 처리하도록 함
+        raise
 
 
 async def extract_keywords_with_gpt(title, content):
@@ -224,6 +229,7 @@ async def process_article_task(item, session, semaphore):
         }
 
 
+# --- [수정된 부분] Gemini API Reference를 준수하여 최종 보고서 생성 함수 수정 ---
 async def synthesize_final_report(summaries):
     full_summary_text = ""
     for i, summary_data in enumerate(summaries, 1):
@@ -249,17 +255,38 @@ async def synthesize_final_report(summaries):
 """
     user_prompt = f"아래의 뉴스 요약본들을 바탕으로 분석 보고서를 작성해주세요.\n\n---## 요약본 시작 ##---\n\n{full_summary_text}"
 
+    # API Reference에 명시된 동기(synchronous) 함수
+    def generate_content_sync():
+        try:
+            # API Reference에 따라 Client 객체 생성
+            client = genai.Client()
+
+            # API Reference에 따라 GenerateContentConfig 객체 생성
+            config = types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.2,  # 보고서의 일관성을 위해 낮은 온도로 설정
+            )
+
+            # API Reference에 명시된 호출 방식 사용
+            response = client.models.generate_content(
+                model="gemini-2.5-flash", contents=user_prompt, config=config
+            )
+            return response.text.strip()
+        except Exception as e:
+            print(f"❌ 최종 보고서 생성 중 오류 (Gemini): {e}")
+            # 에러를 다시 발생시켜 상위 호출자에게 전파
+            raise
+
     try:
-        # INFO: 사용자가 요청한 'gemini-2.5-flash'는 현재 사용할 수 없는 모델명일 가능성이 높습니다.
-        # 코드 실행 오류를 방지하기 위해, 현재 사용 가능한 최신 고성능 모델인 'gemini-1.5-pro-latest'로 대체합니다.
-        model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash", system_instruction=system_prompt
-        )
-        response = await model.generate_content_async(user_prompt)
-        return response.text.strip()
+        # 비동기 함수 내에서 동기 함수를 안전하게 호출
+        final_text = await asyncio.to_thread(generate_content_sync)
+        return final_text
     except Exception as e:
-        print(f"❌ 최종 보고서 생성 중 오류 (Gemini): {e}")
-        raise
+        # generate_content_sync에서 발생한 에러를 여기서 처리
+        raise e
+
+
+# --- 수정된 부분 끝 ---
 
 
 async def run_analysis_and_synthesis_async(filtered_items, progress_callback=None):
@@ -418,4 +445,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
