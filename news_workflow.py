@@ -1,12 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
-
-# --- [수정된 부분] Gemini API Reference에 따른 import ---
-from google import genai
-from google.generativeai import types
-
-# ---------------------------------------------------
 import os
 from dotenv import load_dotenv
 from docx import Document
@@ -27,10 +21,18 @@ load_dotenv()
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Gemini 클라이언트 설정 (환경 변수에서 API 키 자동 로드)
-# genai.configure()는 최상위에서 한 번만 호출하면 됩니다.
-# API Reference의 client = genai.Client()는 함수 내에서 호출됩니다.
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# Google Gemini 설정 - 필수 사용
+try:
+    import google.generativeai as genai
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    if not google_api_key or not google_api_key.strip():
+        raise ValueError("GOOGLE_API_KEY 환경변수가 설정되지 않았습니다.")
+    genai.configure(api_key=google_api_key)
+    print("✅ Gemini API 설정 완료")
+except ImportError:
+    raise ImportError("google-generativeai 패키지가 설치되지 않았습니다. 'pip install google-generativeai'로 설치해주세요.")
+except Exception as e:
+    raise Exception(f"Gemini API 설정 실패: {e}")
 
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
@@ -229,8 +231,8 @@ async def process_article_task(item, session, semaphore):
         }
 
 
-
 async def synthesize_final_report(summaries):
+    """최종 보고서 생성 - Gemini-2.0-flash 전용"""
     full_summary_text = ""
     for i, summary_data in enumerate(summaries, 1):
         full_summary_text += f"### 뉴스 {i}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
@@ -257,27 +259,30 @@ async def synthesize_final_report(summaries):
 
     def generate_content_sync():
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-
-            # [수정] 설정을 단순 Python 딕셔너리로 생성합니다.
-            generation_config = {"temperature": 0.2}
-
+            # Gemini-2.0-flash 모델 사용
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            generation_config = {
+                "temperature": 0.2,
+                "top_p": 0.8,
+                "top_k": 40,
+                "max_output_tokens": 4000,
+            }
             response = model.generate_content(
                 contents=[system_prompt, user_prompt],
                 generation_config=generation_config
             )
             return response.text.strip()
         except Exception as e:
-            print(f"❌ 최종 보고서 생성 중 오류 (Gemini): {e}")
-            raise
+            print(f"❌ Gemini-2.0-flash 보고서 생성 중 오류: {e}")
+            raise Exception(f"Gemini API 오류: {e}")
 
     try:
         final_text = await asyncio.to_thread(generate_content_sync)
+        print("✅ Gemini-2.0-flash로 최종 보고서 생성 완료")
         return final_text
     except Exception as e:
-        raise e
-    
-# --- 수정된 부분 끝 ---
+        print(f"❌ 최종 보고서 생성 실패: {e}")
+        raise
 
 
 async def run_analysis_and_synthesis_async(filtered_items, progress_callback=None):
