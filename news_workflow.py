@@ -258,13 +258,13 @@ async def synthesize_final_report(summaries):
     def generate_content_sync():
         try:
             client = genai.Client()
-            generation_config = {"temperature": 0.2}
 
-            # [수정] 올바른 메서드인 client.models.generate_content 로 호출
+            # [수정] generation_config 딕셔너리를 제거하고,
+            # temperature를 직접 키워드 인수로 전달합니다.
             response = client.models.generate_content(
-                model="gemini-2.5-flash",  # 모델 이름에 'models/' 접두사 제외
+                model="gemini-2.5-flash",
                 contents=[system_prompt, user_prompt],
-                generation_config=generation_config
+                temperature=0.2
             )
             return response.text.strip()
         except Exception as e:
