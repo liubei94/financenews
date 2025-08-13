@@ -30,7 +30,7 @@ client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Gemini 클라이언트 설정 (환경 변수에서 API 키 자동 로드)
 # genai.configure()는 최상위에서 한 번만 호출하면 됩니다.
 # API Reference의 client = genai.Client()는 함수 내에서 호출됩니다.
-genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
@@ -57,7 +57,7 @@ def extract_initial_article_content(url):
         raise
 
 
-async def extract_keywords_with_gpt(title, content):
+async def extract_keywords_with_gpt(title, content, max_count=5):
     """GPT를 사용해 비동기적으로 핵심 키워드를 추출합니다. (파싱 로직 강화)"""
     prompt = f"""
 다음은 뉴스의 제목과 본문입니다. 이 기사의 핵심 주제를 가장 잘 나타내는 키워드를 최대 5개까지 한글로 추출해주세요.
@@ -92,7 +92,7 @@ async def extract_keywords_with_gpt(title, content):
             if kw.strip()
         ]
 
-        return cleaned_keywords[:5]
+        return cleaned_keywords[:max_count]
     except Exception as e:
         print(f"❌ GPT 키워드 추출 중 오류 발생: {e}")
         raise
@@ -445,4 +445,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
