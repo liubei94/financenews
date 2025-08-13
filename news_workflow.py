@@ -231,11 +231,12 @@ async def process_article_task(item, session, semaphore):
         }
 
 
-async def synthesize_final_report(summaries):
-    """최종 보고서 생성 - Gemini-2.5-flash 전용"""
-    full_summary_text = ""
-    for i, summary_data in enumerate(summaries, 1):
-        full_summary_text += f"### 뉴스 {i}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
+# [신규 추가] 1. 중간 분석 보고서 생성 함수
+async def synthesize_intermediate_report(summary_chunk):
+    """뉴스 요약본 묶음(chunk)을 받아 중간 분석을 수행합니다."""
+    chunk_text = ""
+    for i, summary_data in enumerate(summary_chunk, 1):
+        chunk_text += f"### 뉴스 {i}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
 
     system_prompt = """
 당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다.
@@ -255,73 +256,106 @@ async def synthesize_final_report(summaries):
     * 우리 조직이 주의 깊게 관찰해야 할 리스크와 기회 요인은 무엇입니까?
     * 독자가 얻어야 할 최종적인 통찰(Insight)을 제시합니다.
 """
-    user_prompt = f"아래의 뉴스 요약본들을 바탕으로 분석 보고서를 작성해주세요.\n\n---## 요약본 시작 ##---\n\n{full_summary_text}"
+    user_prompt = f"아래의 뉴스 요약본 묶음을 분석하여 중간 보고서를 작성해주세요.\n\n{chunk_text}"
 
     def generate_content_sync():
         try:
-            # Gemini-2.5-flash 모델 사용
             model = genai.GenerativeModel('gemini-2.5-flash')
-            generation_config = {
-                "temperature": 0.2,
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 16384,
-            }
+            generation_config = {"temperature": 0.1, "max_output_tokens": 8192} # Gemini의 경우 8192 토큰까지 지원
             response = model.generate_content(
                 contents=[system_prompt, user_prompt],
                 generation_config=generation_config
             )
             return response.text.strip()
         except Exception as e:
-            print(f"❌ Gemini-2.0-flash 보고서 생성 중 오류: {e}")
-            raise Exception(f"Gemini API 오류: {e}")
+            raise Exception(f"중간 보고서 생성 중 Gemini API 오류: {e}")
 
-    try:
-        final_text = await asyncio.to_thread(generate_content_sync)
-        print("✅ Gemini-2.0-flash로 최종 보고서 생성 완료")
-        return final_text
-    except Exception as e:
-        print(f"❌ 최종 보고서 생성 실패: {e}")
-        raise
+    return await asyncio.to_thread(generate_content_sync)
 
 
+# [수정] 2. 최종 보고서 생성 함수 (이제 중간 보고서들을 입력으로 받음)
+async def synthesize_final_report(intermediate_reports):
+    """여러 중간 분석 보고서를 종합하여 최종 보고서를 생성합니다."""
+    full_intermediate_text = ""
+    for i, report_text in enumerate(intermediate_reports, 1):
+        full_intermediate_text += f"---## 중간 분석 보고서 {i} ##---\n\n{report_text}\n\n"
+
+    system_prompt = """
+당신은 최고 경영진을 위한 수석 전략 분석가입니다. 여러 중간 분석 보고서들을 종합하여, 최종 의사결정을 위한 보고서의 핵심 파트인 'Executive Summary'와 '전략적 시사점'을 작성합니다.
+다음 구조를 반드시 지켜 작성해주세요.
+1.  **📌 Executive Summary (핵심 요약)**
+    * 전체 상황을 1~2 문장으로 요약합니다.
+2.  **📰 Key Developments (주요 동향 및 사실 분석)**
+    * 어떤 사건/행동이 있었는지 종합적으로 설명합니다.
+    * 공통적으로 드러나는 원인과 배경은 무엇입니까?
+    * 핵심적인 이해관계자(인물, 기업, 기관)는 누구이며, 그들의 입장은 무엇입니까?
+3.  **📊 Comparative Analysis (비교 분석 및 이슈 심층 탐구)**
+    * 기사들 간의 관점 차이나 상충되는 정보가 있다면 비교 분석합니다.
+    * 수치, 데이터, 정책 변화 등 중요한 포인트를 표(Table) 형식으로 정리하여 시각적 이해를 돕습니다. (필요시)
+4.  **🧠 Conclusion & Strategic Implications (결론 및 전략적 시사점)**
+    * 이러한 흐름이 향후 시장/산업/정책에 미칠 영향은 무엇입니까?
+    * 우리 조직이 주의 깊게 관찰해야 할 리스크와 기회 요인은 무엇입니까?
+    * 독자가 얻어야 할 최종적인 통찰(Insight)을 제시합니다.
+"""
+    user_prompt = f"아래의 중간 분석 보고서들을 바탕으로 최종 결론 및 요약 보고서를 작성해주세요.\n\n{full_intermediate_text}"
+
+    def generate_content_sync():
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            generation_config = {"temperature": 0.3, "max_output_tokens": 8192} # Gemini의 경우 8192 토큰까지 지원
+            response = model.generate_content(
+                contents=[system_prompt, user_prompt],
+                generation_config=generation_config
+            )
+            return response.text.strip()
+        except Exception as e:
+            raise Exception(f"최종 보고서 생성 중 Gemini API 오류: {e}")
+
+    # 중간 보고서들을 합쳐서 최종 보고서 텍스트 완성
+    final_report_text = f"## 📈 종합 분석\n\n{full_intermediate_text}\n\n---\n\n{await asyncio.to_thread(generate_content_sync)}"
+    return final_report_text
+
+
+# [수정] 3. 메인 비동기 처리 함수 (분할 정복 로직 적용)
 async def run_analysis_and_synthesis_async(filtered_items, progress_callback=None):
-    """Streamlit에서 호출할 메인 비동기 처리 함수 (진행상황 콜백 추가)"""
     semaphore = asyncio.Semaphore(10)
     successful_results = []
     failed_results = []
     total_items = len(filtered_items)
 
     async with httpx.AsyncClient() as session:
-        tasks = [
-            process_article_task(item, session, semaphore) for item in filtered_items
-        ]
-
+        tasks = [process_article_task(item, session, semaphore) for item in filtered_items]
         for i, future in enumerate(asyncio.as_completed(tasks)):
             result = await future
             if result and result["status"] == "success":
                 successful_results.append(result)
             else:
-                if not result:
-                    result = {
-                        "status": "failed",
-                        "reason": "알 수 없는 오류",
-                        "link": "",
-                    }
-                failed_results.append(result)
+                failed_results.append(result or {"status": "failed", "reason": "알 수 없는 오류", "link": ""})
 
             if progress_callback:
-                progress_callback(i + 1, total_items)
+                progress_callback(i + 1, total_items, f"📰 기사 요약 중... ({i + 1}/{total_items})")
 
     if not successful_results:
         return None, [], []
 
-    if progress_callback:
-        progress_callback(
-            total_items, total_items, "✅ 기사 처리 완료! 최종 보고서를 생성합니다..."
-        )
+    # --- 분할 정복 로직 시작 ---
+    CHUNK_SIZE = 10  # 10개의 뉴스 요약본을 하나의 그룹으로 묶음
+    summary_chunks = [successful_results[i:i + CHUNK_SIZE] for i in range(0, len(successful_results), CHUNK_SIZE)]
+    intermediate_reports = []
+    total_chunks = len(summary_chunks)
 
-    final_report = await synthesize_final_report(successful_results)
+    for i, chunk in enumerate(summary_chunks):
+        if progress_callback:
+            progress_callback(i, total_chunks, f"📊 중간 분석 보고서 생성 중... ({i + 1}/{total_chunks})")
+        intermediate_report = await synthesize_intermediate_report(chunk)
+        intermediate_reports.append(intermediate_report)
+    
+    if progress_callback:
+        progress_callback(total_chunks, total_chunks, "✅ 분석 완료! 최종 보고서를 종합합니다...")
+
+    final_report = await synthesize_final_report(intermediate_reports)
+    # --- 분할 정복 로직 끝 ---
+
     return final_report, successful_results, failed_results
 
 
@@ -441,6 +475,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
-
-
