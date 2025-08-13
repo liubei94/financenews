@@ -30,7 +30,7 @@ client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Gemini 클라이언트 설정 (환경 변수에서 API 키 자동 로드)
 # genai.configure()는 최상위에서 한 번만 호출하면 됩니다.
 # API Reference의 client = genai.Client()는 함수 내에서 호출됩니다.
-#genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
@@ -228,7 +228,6 @@ async def process_article_task(item, session, semaphore):
             "summary": summary,
         }
 
-
 # --- [수정된 부분] Gemini API Reference를 준수하여 최종 보고서 생성 함수 수정 ---
 async def synthesize_final_report(summaries):
     full_summary_text = ""
@@ -236,7 +235,7 @@ async def synthesize_final_report(summaries):
         full_summary_text += f"### 뉴스 {i}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
 
     system_prompt = """
-당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다. 
+당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다.
 여러 뉴스 기사의 핵심 요약본들을 바탕으로, 회사 CFO나 CEO가 의사결정을 위해 참고할 심층 분석 보고서를 작성합니다.
 다음 구조를 반드시 지켜 보고서를 작성해주세요.
 1.  **📌 Executive Summary (핵심 요약)**
@@ -257,14 +256,16 @@ async def synthesize_final_report(summaries):
 
     def generate_content_sync():
         try:
-            client = genai.Client()
+            # [수정] 표준적인 'GenerativeModel' 사용 방식으로 변경
+            model = genai.GenerativeModel('gemini-1.5-flash')
 
-            # [수정] generation_config 딕셔너리를 제거하고,
-            # temperature를 직접 키워드 인수로 전달합니다.
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
+            # [수정] temperature 설정을 위한 GenerationConfig 객체 생성
+            generation_config = types.GenerationConfig(temperature=0.2)
+
+            # [수정] 모델 객체에서 바로 generate_content 호출
+            response = model.generate_content(
                 contents=[system_prompt, user_prompt],
-                temperature=0.2
+                generation_config=generation_config
             )
             return response.text.strip()
         except Exception as e:
