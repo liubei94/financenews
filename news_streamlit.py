@@ -22,64 +22,55 @@ st.set_page_config(
 
 # 2. 그 다음에 다른 st 명령어들을 배치
 # --- [개선된 부분] 태그 스타일 UI를 위한 커스텀 CSS ---
-st.markdown(
-    """
+st.markdown("""
     <style>
-        /* 태그들을 담는 컨테이너 */
-        .tags-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px; /* 태그 사이의 간격 */
-            padding: 10px;
-            border: 1px solid #e0e0e0;
-            border-radius: 10px;
-            background-color: #fcfcfc;
-            margin-bottom: 1rem;
-        }
-        /* 개별 태그와 삭제 버튼을 묶는 div */
-        .tag-wrapper {
+        /* 키워드 태그의 기반이 될 컨테이너 스타일 */
+        div[data-testid="stContainer"][style*="border"] {
             display: flex;
             align-items: center;
-            background-color: #F0F2F6; /* 스트림릿과 유사한 연한 회색 */
-            color: #31333F; /* 기본 텍스트 색상 */
-            padding: 6px 4px 6px 12px;
-            border-radius: 8px; /* 둥근 모서리 */
+            justify-content: space-between;
+            background-color: #0d6efd; /* 파란색 배경 */
+            border-radius: 20px !important; /* 둥근 모서리 */
+            padding: 3px 5px 3px 15px !important; /* 내부 여백 */
+            border: none !important; /* 기본 테두리 제거 */
+            color: white !important;
+            margin-top: 5px; /* 태그 위쪽 간격 */
+        }
+
+        /* 컨테이너 안의 마크다운 텍스트(p 태그) 스타일 */
+        div[data-testid="stContainer"][style*="border"] p {
+            color: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
             font-size: 14px;
-            font-weight: 500;
-            border: 1px solid #DCDCDC; /* 연한 테두리 */
-            line-height: 1;
         }
-        .tag-wrapper span {
-            margin-right: 8px; /* 텍스트와 x버튼 사이 간격 */
-        }
-        /* Streamlit 버튼의 기본 스타일을 오버라이드하여 x 버튼처럼 보이게 함 */
-        div[data-testid="stButton"] > button {
-            background-color: transparent;
-            border: none;
-            color: #888;
-            padding: 0;
-            margin: 0;
-            line-height: 1;
-            width: 20px;
-            height: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        div[data-testid="stButton"] > button:hover {
-            color: #ff4b4b;
-            background-color: transparent;
-            border: none;
-        }
-        div[data-testid="stButton"] > button:focus {
-            box-shadow: none !important;
+
+        /* 컨테이너 안의 버튼 스타일 */
+        div[data-testid="stContainer"][style*="border"] button {
             background-color: transparent !important;
+            color: white !important;
             border: none !important;
+            font-weight: bold;
+            font-size: 18px;
+            padding: 0 !important;
+            margin: 0 !important;
+            line-height: 1;
+            width: 24px;
+            height: 24px;
+        }
+
+        /* 버튼에 마우스를 올렸을 때 효과 */
+        div[data-testid="stContainer"][style*="border"] button:hover {
+            background-color: rgba(255, 255, 255, 0.2) !important;
+            border-radius: 50%;
+        }
+
+        /* 내부 컬럼 간격 최소화 */
+        div[data-testid="stContainer"][style*="border"] div[data-testid="stHorizontalBlock"] {
+            gap: 0.5rem !important;
         }
     </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 
 st.title("📰 AI 뉴스 분석 Word 리포트 생성기")
@@ -98,6 +89,12 @@ with st.form("input_form"):
         placeholder="https://n.news.naver.com/article/...",
     )
 
+    # [추가] 키워드 개수 선택 UI
+    keyword_count = st.number_input(
+        "🤖 AI가 추출할 최대 키워드 개수",
+        min_value=3, max_value=10, value=5, step=1,
+        help="AI가 뉴스 분석 후 최초로 제안할 키워드의 개수를 설정합니다."
+    )
     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("검색 시작일", date.today())
@@ -124,11 +121,11 @@ if submitted:
     elif start_date > end_date:
         st.error("종료일은 시작일보다 같거나 이후여야 합니다.")
     else:
-        with st.spinner("기준 기사를 분석하고 GPT로 키워드를 추출 중입니다..."):
+        with st.spinner(f"기준 기사를 분석하고 GPT로 키워드 {keyword_count}개를 추출 중입니다..."):
             try:
                 title, content = extract_initial_article_content(link)
                 st.session_state.keywords = asyncio.run(
-                    extract_keywords_with_gpt(title, content)
+                    extract_keywords_with_gpt(title, content, max_count=keyword_count)
                 )
                 st.session_state.step = "keywords_ready"
                 st.session_state.final_keywords = st.session_state.keywords[:]
@@ -149,48 +146,43 @@ if st.session_state.step == "keywords_ready":
 
     # --- [개선된 부분] 태그 스타일 UI 로직 ---
 
-    # 1. 키워드 추가 콜백 함수
+    # 1. 키워드 추가 콜백 함수 (중복 체크 로직 제거)
     def add_keyword():
         new_kw = st.session_state.new_keyword_input.strip()
-        if new_kw and new_kw not in st.session_state.final_keywords:
+        # [수정] 중복 여부와 관계없이 키워드를 추가하도록 변경
+        if new_kw:
             st.session_state.final_keywords.append(new_kw)
-            st.session_state.new_keyword_input = ""
+        st.session_state.new_keyword_input = ""
 
-    # 2. 키워드 삭제 콜백 함수
-    def delete_keyword(keyword_to_delete):
-        if keyword_to_delete in st.session_state.final_keywords:
-            st.session_state.final_keywords.remove(keyword_to_delete)
 
-    # 3. 현재 키워드들을 태그 형태로 표시할 컨테이너
-    st.write("현재 키워드 목록:")
-    container = st.container()
-    with container:
-        # HTML과 CSS를 사용하여 태그 컨테이너 생성
-        tags_html = '<div class="tags-container">'
+    # 2. 현재 키워드를 태그 형태로 표시 (삭제 로직 수정)
+    st.write("**현재 키워드 목록:**")
+    if 'final_keywords' in st.session_state and st.session_state.final_keywords:
+        num_columns = 5
+        keyword_chunks = [st.session_state.final_keywords[i:i + num_columns] for i in range(0, len(st.session_state.final_keywords), num_columns)]
 
-        # 키워드를 표시할 열 생성 (삭제 버튼을 위해)
-        if "final_keywords" in st.session_state and st.session_state.final_keywords:
-            num_cols = len(st.session_state.final_keywords)
-            cols = st.columns(num_cols)
-            for i, keyword in enumerate(st.session_state.final_keywords):
+        # [수정] 각 키워드의 '고유한 순서(인덱스)'를 기준으로 삭제 로직을 처리
+        for chunk_index, chunk in enumerate(keyword_chunks):
+            cols = st.columns(num_columns)
+            for i, keyword in enumerate(chunk):
                 with cols[i]:
-                    # 각 키워드와 삭제 버튼을 HTML/CSS로 래핑하여 시각적 통일성 부여
-                    st.markdown(
-                        f'<div class="tag-wrapper"><span>{keyword}</span>',
-                        unsafe_allow_html=True,
-                    )
-                    st.button(
-                        "×",
-                        key=f"delete_{keyword}",
-                        on_click=delete_keyword,
-                        args=(keyword,),
-                        help=f"'{keyword}' 삭제",
-                    )
-                    st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.warning("분석할 키워드가 없습니다. 아래에서 추가해주세요.")
+                    # 청크와 내부 순서를 조합해 실제 전체 리스트에서의 인덱스 계산
+                    original_index = chunk_index * num_columns + i
 
-    # 4. 새 키워드 입력창
+                    with st.container(border=True):
+                        sub_cols = st.columns([4, 1], gap="small")
+                        with sub_cols[0]:
+                            st.markdown(f"{keyword}")
+                        with sub_cols[1]:
+                            # [수정] 버튼의 key와 삭제 로직 모두 고유 인덱스를 사용
+                            if st.button("×", key=f"delete_{original_index}", help=f"'{keyword}' 삭제"):
+                                st.session_state.final_keywords.pop(original_index)
+                                st.rerun()
+    else:
+        st.info("분석할 키워드가 없습니다. 아래에서 추가해주세요.")
+
+
+    # 3. 새 키워드 입력창
     st.text_input(
         "새 키워드 추가",
         key="new_keyword_input",
