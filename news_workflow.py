@@ -228,7 +228,8 @@ async def process_article_task(item, session, semaphore):
             "summary": summary,
         }
 
-# --- [수정된 부분] Gemini API Reference를 준수하여 최종 보고서 생성 함수 수정 ---
+
+
 async def synthesize_final_report(summaries):
     full_summary_text = ""
     for i, summary_data in enumerate(summaries, 1):
@@ -256,13 +257,11 @@ async def synthesize_final_report(summaries):
 
     def generate_content_sync():
         try:
-            # [수정] 표준적인 'GenerativeModel' 사용 방식으로 변경
             model = genai.GenerativeModel('gemini-1.5-flash')
 
-            # [수정] temperature 설정을 위한 GenerationConfig 객체 생성
-            generation_config = types.GenerationConfig(temperature=0.2)
+            # [수정] 설정을 단순 Python 딕셔너리로 생성합니다.
+            generation_config = {"temperature": 0.2}
 
-            # [수정] 모델 객체에서 바로 generate_content 호출
             response = model.generate_content(
                 contents=[system_prompt, user_prompt],
                 generation_config=generation_config
@@ -277,7 +276,7 @@ async def synthesize_final_report(summaries):
         return final_text
     except Exception as e:
         raise e
-
+    
 # --- 수정된 부분 끝 ---
 
 
