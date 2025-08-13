@@ -232,7 +232,7 @@ async def process_article_task(item, session, semaphore):
 
 
 async def synthesize_final_report(summaries):
-    """최종 보고서 생성 - Gemini-2.0-flash 전용"""
+    """최종 보고서 생성 - Gemini-2.5-flash 전용"""
     full_summary_text = ""
     for i, summary_data in enumerate(summaries, 1):
         full_summary_text += f"### 뉴스 {i}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
@@ -259,8 +259,8 @@ async def synthesize_final_report(summaries):
 
     def generate_content_sync():
         try:
-            # Gemini-2.0-flash 모델 사용
-            model = genai.GenerativeModel('gemini-2.0-flash')
+            # Gemini-2.5-flash 모델 사용
+            model = genai.GenerativeModel('gemini-2.5-flash')
             generation_config = {
                 "temperature": 0.2,
                 "top_p": 0.8,
@@ -441,3 +441,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
