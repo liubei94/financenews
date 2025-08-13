@@ -27,6 +27,11 @@ load_dotenv()
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Gemini 클라이언트 설정 (환경 변수에서 API 키 자동 로드)
+# genai.configure()는 최상위에서 한 번만 호출하면 됩니다.
+# API Reference의 client = genai.Client()는 함수 내에서 호출됩니다.
+#genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
@@ -253,33 +258,30 @@ async def synthesize_final_report(summaries):
     # API Reference에 명시된 동기(synchronous) 함수
     def generate_content_sync():
         try:
-            # API Reference에 따라 Client 객체 생성
             client = genai.Client()
 
-            # API Reference에 따라 GenerateContentConfig 객체 생성
-            config = types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0.2,  # 보고서의 일관성을 위해 낮은 온도로 설정
-            )
+            # [수정] generation_config를 Python 딕셔너리로 생성합니다.
+            generation_config = {
+                "temperature": 0.2,
+            }
 
-            # API Reference에 명시된 호출 방식 사용
-            response = client.models.generate_content(
-                model="gemini-2.5-flash", contents=user_prompt, config=config
+            # [수정] 시스템 프롬프트와 사용자 프롬프트를 contents 리스트에 함께 전달합니다.
+            # 모델 이름도 최신 모델(gemini-1.5-flash)로 변경하고, 호출 방식도 client.generate_content로 변경합니다.
+            response = client.generate_content(
+                model="models/gemini-1.5-flash", 
+                contents=[system_prompt, user_prompt],
+                generation_config=generation_config
             )
             return response.text.strip()
         except Exception as e:
             print(f"❌ 최종 보고서 생성 중 오류 (Gemini): {e}")
-            # 에러를 다시 발생시켜 상위 호출자에게 전파
             raise
 
     try:
-        # 비동기 함수 내에서 동기 함수를 안전하게 호출
         final_text = await asyncio.to_thread(generate_content_sync)
         return final_text
     except Exception as e:
-        # generate_content_sync에서 발생한 에러를 여기서 처리
         raise e
-
 
 # --- 수정된 부분 끝 ---
 
@@ -440,4 +442,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
