@@ -255,20 +255,14 @@ async def synthesize_final_report(summaries):
 """
     user_prompt = f"아래의 뉴스 요약본들을 바탕으로 분석 보고서를 작성해주세요.\n\n---## 요약본 시작 ##---\n\n{full_summary_text}"
 
-    # API Reference에 명시된 동기(synchronous) 함수
     def generate_content_sync():
         try:
             client = genai.Client()
+            generation_config = {"temperature": 0.2}
 
-            # [수정] generation_config를 Python 딕셔너리로 생성합니다.
-            generation_config = {
-                "temperature": 0.2,
-            }
-
-            # [수정] 시스템 프롬프트와 사용자 프롬프트를 contents 리스트에 함께 전달합니다.
-            # 모델 이름도 최신 모델(gemini-1.5-flash)로 변경하고, 호출 방식도 client.generate_content로 변경합니다.
-            response = client.generate_content(
-                model="models/gemini-1.5-flash", 
+            # [수정] 올바른 메서드인 client.models.generate_content 로 호출
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",  # 모델 이름에 'models/' 접두사 제외
                 contents=[system_prompt, user_prompt],
                 generation_config=generation_config
             )
