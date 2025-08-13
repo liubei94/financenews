@@ -265,7 +265,7 @@ async def synthesize_final_report(summaries):
                 "temperature": 0.2,
                 "top_p": 0.8,
                 "top_k": 40,
-                "max_output_tokens": 4000,
+                "max_output_tokens": 8192,
             }
             response = model.generate_content(
                 contents=[system_prompt, user_prompt],
@@ -441,4 +441,5 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
 
