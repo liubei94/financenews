@@ -358,49 +358,60 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
 
 # --- Word 저장 로직 ---
 def save_summary_to_word(summary_text, successful_results, output_stream):
+    """분석 결과를 서식이 적용된 Word 문서로 저장합니다."""
     doc = Document()
     style = doc.styles["Normal"]
-    font = style.font
-    font.name = "맑은 고딕"
+    style.font.name = "맑은 고딕"
     style.paragraph_format.line_spacing = 1.5
     style.paragraph_format.space_after = Pt(5)
+    
+    title_p = doc.add_paragraph()
+    title_run = title_p.add_run("AI 뉴스 분석 리포트")
+    title_run.bold = True
+    title_run.font.size = Pt(20)
+    title_p.alignment = 1
+
+    today_str = datetime.now().strftime('%Y년 %m월 %d일')
+    date_p = doc.add_paragraph()
+    date_run = date_p.add_run(f"작성일: {today_str}")
+    date_run.font.size = Pt(11)
+    date_p.alignment = 2
+
+    doc.add_paragraph("---")
 
     lines = summary_text.split("\n")
     for line in lines:
         line = line.strip()
-        if not line:
+        if not line or line == "---":
             continue
+
+        p = None # 단락 변수 초기화
+
         if line.startswith("### "):
             p = doc.add_paragraph()
-            run = p.add_run(line.replace("### ", ""))
-            run.bold = True
-            run.font.size = Pt(12)
+            p.add_run(line.replace("### ", "")).bold = True
+            p.runs[0].font.size = Pt(12)
         elif line.startswith("## "):
             p = doc.add_paragraph()
-            run = p.add_run(line.replace("## ", ""))
-            run.bold = True
-            run.font.size = Pt(14)
-        elif line.startswith("# "):
+            p.add_run(line.replace("## ", "")).bold = True
+            p.runs[0].font.size = Pt(14)
+        elif line.startswith("# ") or line.startswith("📌") or line.startswith("📰") or line.startswith("📊") or line.startswith("🧠"):
             p = doc.add_paragraph()
-            run = p.add_run(line.replace("# ", ""))
-            run.bold = True
-            run.font.size = Pt(16)
+            p.add_run(line.lstrip("# 📌📰📊🧠").strip()).bold = True
+            p.runs[0].font.size = Pt(16)
         elif line.startswith("* "):
             p = doc.add_paragraph(style="List Bullet")
-            parts = re.split(r"(\*\*.*?\*\*)", line.replace("* ", ""))
-            for part in parts:
-                if part.startswith("**") and part.endswith("**"):
-                    run = p.add_run(part[2:-2])
-                    run.bold = True
-                else:
-                    p.add_run(part)
+            p.paragraph_format.left_indent = Pt(20) 
+            # [수정] 리스트 항목에서 ** 제거 및 굵은 글씨 처리
+            clean_line = line.replace("* ", "").replace("**", "")
+            p.add_run(clean_line)
         else:
             p = doc.add_paragraph()
-            parts = re.split(r"(\*\*.*?\*\*)", line)
+            # [수정] 일반 텍스트에서 ** 제거 및 굵은 글씨 처리
+            parts = re.split(r'(\*\*.*?\*\*)', line)
             for part in parts:
-                if part.startswith("**") and part.endswith("**"):
-                    run = p.add_run(part[2:-2])
-                    run.bold = True
+                if part.startswith('**') and part.endswith('**'):
+                    p.add_run(part[2:-2]).bold = True
                 else:
                     p.add_run(part)
 
