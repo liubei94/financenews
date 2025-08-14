@@ -8,7 +8,7 @@ import re
 # 최적화된 백엔드 워크플로우 함수들을 import
 from news_workflow import (
     extract_initial_article_content,
-    extract_keywords_with_gpt,
+    extract_keywords_with_gemini,
     search_news_naver,
     filter_news_by_date,
     run_analysis_and_synthesis_async,
@@ -121,11 +121,11 @@ if submitted:
     elif start_date > end_date:
         st.error("종료일은 시작일보다 같거나 이후여야 합니다.")
     else:
-        with st.spinner(f"기준 기사를 분석하고 GPT로 키워드 {keyword_count}개를 추출 중입니다..."):
+        with st.spinner(f"기준 기사를 분석하고 Gemini로 키워드 {keyword_count}개를 추출 중입니다..."):
             try:
                 title, content = extract_initial_article_content(link)
                 st.session_state.keywords = asyncio.run(
-                    extract_keywords_with_gpt(title, content, max_count=keyword_count)
+                    extract_keywords_with_gemini(title, content, max_count=keyword_count)
                 )
                 st.session_state.step = "keywords_ready"
                 st.session_state.final_keywords = st.session_state.keywords[:]
