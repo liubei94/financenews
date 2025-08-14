@@ -207,7 +207,7 @@ async def extract_article_content_async(link, session):
 
 async def summarize_individual_article_async(title, content):
     prompt = f"""
-다음 뉴스 기사의 핵심 내용을 아래 항목에 맞추어 간결하게 요약해줘. 각 항목은 한두 문장으로 작성해줘.
+다음 뉴스 기사의 핵심 내용을 아래 항목에 맞추어 간결하게 요약해줘. 각 항목은 2~3 문장으로 작성해줘.
 - **사건/주제**: \n- **주요 인물/기관**: \n- **핵심 주장/내용**: \n- **결과/영향**:
 ---
 제목: {title}\n본문: {content}
@@ -305,6 +305,7 @@ async def synthesize_final_report(summaries):
     * 이러한 흐름이 향후 시장/산업/정책에 미칠 영향은 무엇입니까?
     * 우리 조직이 주의 깊게 관찰해야 할 리스크와 기회 요인은 무엇입니까? 
     * 독자가 얻어야 할 최종적인 통찰(Insight)을 제시합니다.
+주의사항 : 날짜, 수신자, 참조 등 보고서 헤더 정보는 생성하지 않고 본문 내용만 작성합니다.
 """
     user_prompt = f"아래의 뉴스 요약본들을 바탕으로 분석 보고서를 작성해주세요.\n\n---## 요약본 시작 ##---\n\n{full_summary_text}"
 
@@ -471,6 +472,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
-
-
