@@ -75,7 +75,7 @@ async def extract_keywords_with_gemini(title, content, max_count=5):
     def generate_keywords_sync():
         """Gemini API를 동기적으로 호출하는 내부 함수"""
         try:
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-2.0-flash')
             # Gemini는 시스템 프롬프트가 필수가 아니므로, 사용자 프롬프트만 전달
             contents = [prompt]
             generation_config = {"temperature": 0.2}
@@ -471,4 +471,5 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
 
