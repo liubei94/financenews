@@ -206,7 +206,7 @@ async def summarize_individual_article_async(title, content):
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.3,
+            temperature=0.2,
         )
         return response.choices[0].message.content.strip()
     except Exception:
@@ -276,7 +276,7 @@ async def synthesize_final_report(summaries):
         try:
             model = genai.GenerativeModel('gemini-2.5-flash')
             # 보고서 전체를 생성해야 하므로 최대 출력 토큰을 넉넉하게 설정
-            generation_config = {"temperature": 0.2, "max_output_tokens": 8192} 
+            generation_config = {"temperature": 0.2} 
             response = model.generate_content(
                 contents=[system_prompt, user_prompt],
                 generation_config=generation_config
