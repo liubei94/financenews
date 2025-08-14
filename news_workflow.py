@@ -59,30 +59,47 @@ def extract_initial_article_content(url):
         raise
 
 
-async def extract_keywords_with_gpt(title, content, max_count=5):
-    """GPT를 사용해 비동기적으로 핵심 키워드를 추출합니다. (파싱 로직 강화)"""
+async def extract_keywords_with_gemini(title, content, max_count=5):
+    """Gemini를 사용해 비동기적으로 핵심 키워드를 추출합니다."""
+    # Gemini에 전달할 프롬프트 (기존과 동일)
     prompt = f"""
-다음은 뉴스의 제목과 본문입니다. 이 기사의 핵심 주제를 가장 잘 나타내는 키워드를 최대 5개까지 한글로 추출해주세요.
+다음은 뉴스의 제목과 본문입니다. 이 기사의 핵심 주제를 가장 잘 나타내는 키워드를 최대 {max_count}개까지 한글로 추출해주세요.
 - 각 키워드는 명사 형태로 간결하게 제시해주세요.
 - 구분자는 쉼표(,) 또는 줄바꿈을 사용해주세요.
 
 제목: {title}
 본문: {content}
 """
-    try:
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "당신은 핵심 키워드 추출 전문가입니다. 가장 중요한 단어를 최대 5개까지 정확히 추출하세요.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-        )
-        keywords_text = response.choices[0].message.content.strip()
+    
+    # --- [수정] Gemini API 호출 방식으로 변경 ---
+    def generate_keywords_sync():
+        """Gemini API를 동기적으로 호출하는 내부 함수"""
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            # Gemini는 시스템 프롬프트가 필수가 아니므로, 사용자 프롬프트만 전달
+            contents = [prompt]
+            generation_config = {"temperature": 0.2}
 
+            response = model.generate_content(
+                contents=contents,
+                generation_config=generation_config
+            )
+
+            if not response.parts:
+                print("⚠️ Gemini API가 키워드에 대해 빈 응답을 반환했습니다.")
+                return ""
+            return response.text.strip()
+        except Exception as e:
+            print(f"❌ Gemini 키워드 추출 중 오류 발생: {e}")
+            return ""
+
+    try:
+        keywords_text = await asyncio.to_thread(generate_keywords_sync)
+        if not keywords_text:
+            raise Exception("Gemini로부터 키워드를 받지 못했습니다.")
+
+        # --- 기존과 동일한 후처리 로직 ---
+        # AI가 생성한 텍스트에서 키워드를 파싱하고 정리합니다.
         lines = keywords_text.split("\n")
         keywords_list = []
         for line in lines:
@@ -96,9 +113,8 @@ async def extract_keywords_with_gpt(title, content, max_count=5):
 
         return cleaned_keywords[:max_count]
     except Exception as e:
-        print(f"❌ GPT 키워드 추출 중 오류 발생: {e}")
+        print(f"❌ 키워드 처리 중 오류 발생: {e}")
         raise
-
 
 def search_news_naver(keywords, display=50):
     """네이버 API를 통해 관련 뉴스를 검색합니다."""
@@ -196,19 +212,39 @@ async def summarize_individual_article_async(title, content):
 ---
 제목: {title}\n본문: {content}
 """
+    # --- [수정] Gemini API 호출 방식으로 변경 ---
+    def generate_summary_sync():
+        """Gemini API를 동기적으로 호출하는 내부 함수"""
+        try:
+            # 1. Gemini 모델 객체 생성 (2.5-flash 모델 사용)
+            model = genai.GenerativeModel('gemini-2.5-flash')
+
+            # 2. 시스템 지시와 사용자 프롬프트를 리스트로 구성
+            system_prompt = "당신은 뉴스 분석가입니다. 기사의 핵심만 정확하게 추출하여 요약합니다."
+            contents = [system_prompt, prompt]
+
+            # 3. 생성 옵션 설정
+            generation_config = {"temperature": 0.2}
+
+            # 4. API 호출
+            response = model.generate_content(
+                contents=contents,
+                generation_config=generation_config
+            )
+
+            # 5. 응답 텍스트 반환 (안전장치 포함)
+            if not response.parts:
+                print("⚠️ Gemini API가 빈 응답을 반환했습니다.")
+                return None
+            return response.text.strip()
+        except Exception as e:
+            print(f"❌ Gemini 개별 요약 중 오류 발생: {e}")
+            return None
+
     try:
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "당신은 뉴스 분석가입니다. 기사의 핵심만 정확하게 추출하여 요약합니다.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-        )
-        return response.choices[0].message.content.strip()
+        # 동기 함수를 비동기적으로 실행
+        summary = await asyncio.to_thread(generate_summary_sync)
+        return summary
     except Exception:
         return None
 
