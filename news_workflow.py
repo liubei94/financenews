@@ -231,17 +231,30 @@ async def process_article_task(item, session, semaphore):
         }
 
 
-# [신규 추가] 1. 중간 분석 보고서 생성 함수
-async def synthesize_intermediate_report(summary_chunk):
-    """뉴스 요약본 묶음(chunk)을 받아 중간 분석을 수행합니다."""
-    chunk_text = ""
-    for i, summary_data in enumerate(summary_chunk, 1):
-        chunk_text += f"### 뉴스 {i}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
+async def synthesize_final_report(summaries):
+    """모든 뉴스 요약본을 받아 하나의 종합 보고서를 생성합니다."""
+    
+    # AI 입력의 안정성을 위해 최대 글자 수 제한 (토큰 약 2만개 분량)
+    MAX_INPUT_CHARS = 25000 
+    
+    full_summary_text = ""
+    processed_count = 0
+    for summary_data in summaries:
+        summary_entry = f"### 뉴스 {processed_count + 1}: {summary_data['title']}\n{summary_data['summary']}\n\n---\n\n"
+        if len(full_summary_text) + len(summary_entry) > MAX_INPUT_CHARS:
+            break
+        full_summary_text += summary_entry
+        processed_count += 1
+
+    if processed_count < len(summaries):
+        remaining_count = len(summaries) - processed_count
+        full_summary_text += f"\n... 외 {remaining_count}개의 관련 기사가 있으나, 안정적인 분석을 위해 일부만 사용합니다.\n"
 
     system_prompt = """
-당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다.
+당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다. 
 여러 뉴스 기사의 핵심 요약본들을 바탕으로, 회사 CFO나 CEO가 의사결정을 위해 참고할 심층 분석 보고서를 작성합니다.
 다음 구조를 반드시 지켜 보고서를 작성해주세요.
+전체적인 분량은 2000자 내외로, 각 섹션은 300~500자 정도로 작성합니다.
 1.  **📌 Executive Summary (핵심 요약)**
     * 전체 상황을 1~2 문장으로 요약합니다.
 2.  **📰 Key Developments (주요 동향 및 사실 분석)**
@@ -256,67 +269,26 @@ async def synthesize_intermediate_report(summary_chunk):
     * 우리 조직이 주의 깊게 관찰해야 할 리스크와 기회 요인은 무엇입니까?
     * 독자가 얻어야 할 최종적인 통찰(Insight)을 제시합니다.
 """
-    user_prompt = f"아래의 뉴스 요약본 묶음을 분석하여 중간 보고서를 작성해주세요.\n\n{chunk_text}"
+    user_prompt = f"아래의 뉴스 요약본들을 바탕으로 분석 보고서를 작성해주세요.\n\n---## 요약본 시작 ##---\n\n{full_summary_text}"
 
     def generate_content_sync():
         try:
             model = genai.GenerativeModel('gemini-2.5-flash')
-            generation_config = {"temperature": 0.1, "max_output_tokens": 8192} # Gemini의 경우 8192 토큰까지 지원
+            # 보고서 전체를 생성해야 하므로 최대 출력 토큰을 넉넉하게 설정
+            generation_config = {"temperature": 0.2, "max_output_tokens": 8192} 
             response = model.generate_content(
                 contents=[system_prompt, user_prompt],
                 generation_config=generation_config
             )
-            return response.text.strip()
-        except Exception as e:
-            raise Exception(f"중간 보고서 생성 중 Gemini API 오류: {e}")
-
-    return await asyncio.to_thread(generate_content_sync)
-
-
-# [수정] 2. 최종 보고서 생성 함수 (이제 중간 보고서들을 입력으로 받음)
-async def synthesize_final_report(intermediate_reports):
-    """여러 중간 분석 보고서를 종합하여 최종 보고서를 생성합니다."""
-    full_intermediate_text = ""
-    for i, report_text in enumerate(intermediate_reports, 1):
-        full_intermediate_text += f"---## 중간 분석 보고서 {i} ##---\n\n{report_text}\n\n"
-
-    system_prompt = """
-당신은 최고 경영진을 위한 수석 전략 분석가입니다. 여러 중간 분석 보고서들을 종합하여, 최종 의사결정을 위한 보고서의 핵심 파트인 'Executive Summary'와 '전략적 시사점'을 작성합니다.
-다음 구조를 반드시 지켜 작성해주세요.
-1.  **📌 Executive Summary (핵심 요약)**
-    * 전체 상황을 1~2 문장으로 요약합니다.
-2.  **📰 Key Developments (주요 동향 및 사실 분석)**
-    * 어떤 사건/행동이 있었는지 종합적으로 설명합니다.
-    * 공통적으로 드러나는 원인과 배경은 무엇입니까?
-    * 핵심적인 이해관계자(인물, 기업, 기관)는 누구이며, 그들의 입장은 무엇입니까?
-3.  **📊 Comparative Analysis (비교 분석 및 이슈 심층 탐구)**
-    * 기사들 간의 관점 차이나 상충되는 정보가 있다면 비교 분석합니다.
-    * 수치, 데이터, 정책 변화 등 중요한 포인트를 표(Table) 형식으로 정리하여 시각적 이해를 돕습니다. (필요시)
-4.  **🧠 Conclusion & Strategic Implications (결론 및 전략적 시사점)**
-    * 이러한 흐름이 향후 시장/산업/정책에 미칠 영향은 무엇입니까?
-    * 우리 조직이 주의 깊게 관찰해야 할 리스크와 기회 요인은 무엇입니까?
-    * 독자가 얻어야 할 최종적인 통찰(Insight)을 제시합니다.
-"""
-    user_prompt = f"아래의 중간 분석 보고서들을 바탕으로 최종 결론 및 요약 보고서를 작성해주세요.\n\n{full_intermediate_text}"
-
-    def generate_content_sync():
-        try:
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            generation_config = {"temperature": 0.3, "max_output_tokens": 8192} # Gemini의 경우 8192 토큰까지 지원
-            response = model.generate_content(
-                contents=[system_prompt, user_prompt],
-                generation_config=generation_config
-            )
+            if not response.parts:
+                raise ValueError(f"Gemini API가 빈 응답을 반환했습니다. (finish_reason: {response.candidates[0].finish_reason.name})")
             return response.text.strip()
         except Exception as e:
             raise Exception(f"최종 보고서 생성 중 Gemini API 오류: {e}")
 
-    # 중간 보고서들을 합쳐서 최종 보고서 텍스트 완성
-    final_report_text = f"## 📈 종합 분석\n\n{full_intermediate_text}\n\n---\n\n{await asyncio.to_thread(generate_content_sync)}"
-    return final_report_text
+    return await asyncio.to_thread(generate_content_sync)
 
 
-# [수정] 3. 메인 비동기 처리 함수 (분할 정복 로직 적용)
 async def run_analysis_and_synthesis_async(filtered_items, progress_callback=None):
     semaphore = asyncio.Semaphore(10)
     successful_results = []
@@ -338,23 +310,10 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
     if not successful_results:
         return None, [], []
 
-    # --- 분할 정복 로직 시작 ---
-    CHUNK_SIZE = 10  # 10개의 뉴스 요약본을 하나의 그룹으로 묶음
-    summary_chunks = [successful_results[i:i + CHUNK_SIZE] for i in range(0, len(successful_results), CHUNK_SIZE)]
-    intermediate_reports = []
-    total_chunks = len(summary_chunks)
-
-    for i, chunk in enumerate(summary_chunks):
-        if progress_callback:
-            progress_callback(i, total_chunks, f"📊 중간 분석 보고서 생성 중... ({i + 1}/{total_chunks})")
-        intermediate_report = await synthesize_intermediate_report(chunk)
-        intermediate_reports.append(intermediate_report)
-    
     if progress_callback:
-        progress_callback(total_chunks, total_chunks, "✅ 분석 완료! 최종 보고서를 종합합니다...")
+        progress_callback(total_items, total_items, "✅ 분석 완료! 최종 보고서를 종합합니다...")
 
-    final_report = await synthesize_final_report(intermediate_reports)
-    # --- 분할 정복 로직 끝 ---
+    final_report = await synthesize_final_report(successful_results)
 
     return final_report, successful_results, failed_results
 
