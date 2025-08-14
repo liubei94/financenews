@@ -289,8 +289,14 @@ async def synthesize_final_report(summaries):
     system_prompt = """
 당신은 정치/경제/산업 분야의 최고 수준의 전문 분석가입니다. 
 여러 뉴스 기사의 핵심 요약본들을 바탕으로, 회사 CFO나 CEO가 의사결정을 위해 참고할 심층 분석 보고서를 작성합니다.
-다음 구조를 반드시 지켜 보고서를 작성해주세요.
-전체적인 분량은 2000자 내외로, Key Developments와 Comparative Analysis의 비중을 80% 이상 유지합니다.
+
+# 지시사항
+아래의 구조와 세부 지침을 반드시 준수하여 보고서를 작성해주세요.
+전체적인 분량은 2000자 내외로, Key Developments와 Comparative Analysis의 비중을 각각 40% 수준을 유지합니다.
+단, 최종 결과물을 출력할 때 목록은 번호(1., 2.)를 사용하지 말고, 오직 불렛 포인트('*')로만 통일해야 합니다.
+
+---
+## 보고서 구조 및 세부 지침
 1.  **📌 Executive Summary (핵심 요약)**
     * 전체 상황을 1~2 문장으로 요약합니다.
 2.  **📰 Key Developments (주요 동향 및 사실 분석)**
