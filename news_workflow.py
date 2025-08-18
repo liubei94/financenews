@@ -57,10 +57,10 @@ def extract_initial_article_content(url: str) -> tuple[str, str]:
     """
     print(f"🔥 FireCrawl로 기준 기사 분석 시작: {url}")
     try:
-        # params 키워드를 추가하여 옵션을 정확하게 전달합니다.
+        # [수정] 'params='를 제거하고 'pageOptions'를 직접 키워드 인자로 전달
         scraped_data = firecrawl.scrape_url(
             url,
-            params={"pageOptions": {"onlyMainContent": True}} # <--- 이 부분 수정
+            pageOptions={"onlyMainContent": True} # <--- 이 부분 수정
         )
 
         # 데이터 추출
@@ -486,3 +486,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
