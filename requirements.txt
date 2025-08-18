@@ -26,3 +26,5 @@ tqdm
 google-generativeai
 google-genai
 
+# Simplified web scraping and content extraction
+firecrawl-py
