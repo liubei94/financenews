@@ -1,4 +1,5 @@
 import requests
+from crawl4ai import Crawler
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
 import os
@@ -155,54 +156,56 @@ def filter_news_by_date(news_items, start_date, end_date):
 # --- 비동기 처리 핵심 로직 ---
 
 
-async def extract_article_content_async(link, session):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
+# [수정 1] 실패 원인을 함께 반환하도록 함수 구조 변경
+async def extract_article_content_async(link: str, session) -> tuple[str | None, str | None, str | None]:
+    """
+    FireCrawl을 사용해 웹사이트 컨텐츠를 추출하고, 실패 시 원인 메시지를 반환합니다.
+    반환값: (제목, 본문, 오류_메시지)
+    """
     try:
-        response = await session.get(
-            link, headers=headers, timeout=15, follow_redirects=True
-        )
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        content_area = soup.select_one("article#dic_area, div#newsct_article")
-        if content_area:
-            title_tag = soup.find("meta", property="og:title")
-            title = title_tag["content"].strip() if title_tag else "제목 없음"
-            content = " ".join(
-                p.get_text(strip=True)
-                for p in content_area.find_all("p")
-                if p.get_text(strip=True)
-            )
-            return title, content
-        title_tag = soup.find("meta", property="og:title")
-        title = title_tag["content"].strip() if title_tag else soup.title.string.strip()
-        selectors = [
-            "div.article_body",
-            "div.article_view",
-            "div#article-body",
-            "div#news_body_area",
-            "div.article_txt",
-            "div#article_body",
-            "div.article-text",
-            "section.article-body",
-        ]
-        content_area = soup.select_one(", ".join(selectors))
-        paragraphs = (
-            content_area.find_all("p")
-            if content_area
-            else soup.find("body").find_all("p")
-        )
-        content = " ".join(
-            [
-                p.get_text(strip=True)
-                for p in paragraphs
-                if len(p.get_text(strip=True)) > 50
-            ]
-        )
-        return title, content
-    except Exception:
-        return None, None
+        scraped_data = await firecrawl.ascrape_url(link, {"pageOptions": {"onlyMainContent": True}})
+
+        content = scraped_data.get("markdown")
+        title = scraped_data.get("metadata", {}).get("title")
+
+        # [개선] 크롤링은 성공했으나, 내용이 비어있는 '소프트 실패' 케이스
+        if not content or not title or len(content) < 50: # 내용이 너무 짧은 경우도 실패로 간주
+            error_msg = "콘텐츠 추출 실패 (페이지 구조가 복잡하거나 내용이 없음)"
+            print(f"🟡 FireCrawl 소프트 실패: {link}, 원인: {error_msg}")
+            return None, None, error_msg
+
+        return title, content, None # 성공 시 오류 메시지는 None
+
+    except Exception as e:
+        # [개선] API 요청 자체가 실패한 '하드 실패' 케이스
+        error_msg = f"API 요청 오류 ({type(e).__name__})"
+        print(f"🔥 FireCrawl 하드 실패: {link}, 오류: {e}")
+        return None, None, error_msg
+
+
+# [수정 2] 상세화된 실패 원인을 결과에 반영
+async def process_article_task(item, session, semaphore):
+    async with semaphore:
+        link = item.get("originallink", item.get("link"))
+        
+        # [개선] title, content 외에 error_message도 함께 받음
+        title, content, error_message = await extract_article_content_async(link, session)
+        
+        # [개선] 실패 원인(error_message)이 있으면 바로 실패 처리
+        if error_message:
+            return {"status": "failed", "reason": error_message, "link": link}
+
+        summary = await summarize_individual_article_async(title, content)
+        if not summary:
+            return {"status": "failed", "reason": "개별 요약 실패", "link": link}
+        
+        return {
+            "status": "success",
+            "title": re.sub("<.*?>", "", item["title"]),
+            "link": link,
+            "original_item": item,
+            "summary": summary,
+        }
 
 
 async def summarize_individual_article_async(title, content):
