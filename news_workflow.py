@@ -52,16 +52,18 @@ NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 # FireCrawl을 사용하여 모든 사이트의 콘텐츠를 가져오도록 변경
 def extract_initial_article_content(url: str) -> tuple[str, str]:
     """
-    FireCrawl을 사용해 기준 기사의 제목과 본문을 동기적으로 추출합니다.
-    이제 네이버 뉴스 외 다른 사이트도 지원합니다.
+    FireCrawl의 비동기 메소드를 사용하여 기준 기사의 제목과 본문을 추출합니다.
+    동기 함수 내에서 asyncio.run()을 통해 비동기 함수를 호출합니다.
     """
-    print(f"🔥 FireCrawl로 기준 기사 분석 시작: {url}")
+    print(f"🔥 FireCrawl로 기준 기사 분석 시작 (async in sync): {url}")
     try:
-        # [수정] 'params='를 제거하고 'pageOptions'를 직접 키워드 인자로 전달
-        scraped_data = firecrawl.scrape_url(
-            url,
-            pageOptions={"onlyMainContent": True} # <--- 이 부분 수정
-        )
+        # 동기 함수 내에서 비동기 함수(ascrape_url)를 실행하기 위해 asyncio.run() 사용
+        async def scrape():
+            # [수정] 비동기 메소드인 ascrape_url을 사용합니다.
+            # 이 메소드는 옵션을 두 번째 위치 인자로 받습니다.
+            return await firecrawl.ascrape_url(url, {"pageOptions": {"onlyMainContent": True}})
+
+        scraped_data = asyncio.run(scrape())
 
         # 데이터 추출
         title = scraped_data.get("metadata", {}).get("title", "제목 없음")
@@ -74,9 +76,12 @@ def extract_initial_article_content(url: str) -> tuple[str, str]:
         return title, content
 
     except Exception as e:
+        # nest_asyncio 관련 경고나 다른 asyncio 오류를 고려하여 오류 메시지를 좀 더 명확하게 함
+        if "cannot run current event loop" in str(e):
+             raise Exception(f"기준 기사 분석 중 asyncio 루프 충돌이 발생했습니다. (오류: {e})")
         print(f"❌ FireCrawl 초기 기사 추출 실패: {e}")
-        # Streamlit에 명확한 오류를 전달하기 위해 예외를 다시 발생시킴
         raise Exception(f"기준 기사 분석 중 오류가 발생했습니다. (FireCrawl: {e})")
+
 
 
 async def extract_keywords_with_gemini(title, content, max_count=5):
@@ -486,4 +491,5 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
 
