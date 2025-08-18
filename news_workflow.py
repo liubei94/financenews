@@ -1,5 +1,5 @@
 import requests
-from firecrawl import FirecrawlApp
+from firecrawl import FirecrawlApp, AsyncFirecrawlApp
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
 import os
@@ -23,9 +23,12 @@ load_dotenv()
 firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
 if not firecrawl_api_key:
     raise ValueError("FIRECRAWL_API_KEY 환경변수가 설정되지 않았습니다.")
-firecrawl = FirecrawlApp(api_key=firecrawl_api_key)
 # ---------------------------------------------
-
+# 동기 작업을 위한 클라이언트
+firecrawl = FirecrawlApp(api_key=firecrawl_api_key)
+# 비동기 작업을 위한 클라이언트
+async_firecrawl = AsyncFirecrawlApp(api_key=firecrawl_api_key)
+# ---------------------------------------------
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -52,18 +55,16 @@ NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 # FireCrawl을 사용하여 모든 사이트의 콘텐츠를 가져오도록 변경
 def extract_initial_article_content(url: str) -> tuple[str, str]:
     """
-    FireCrawl의 비동기 메소드를 사용하여 기준 기사의 제목과 본문을 추출합니다.
-    동기 함수 내에서 asyncio.run()을 통해 비동기 함수를 호출합니다.
+    FireCrawl의 동기 클라이언트를 사용해 기준 기사의 제목과 본문을 추출합니다.
     """
-    print(f"🔥 FireCrawl로 기준 기사 분석 시작 (async in sync): {url}")
+    print(f"🔥 FireCrawl로 기준 기사 분석 시작: {url}")
     try:
-        # 동기 함수 내에서 비동기 함수(ascrape_url)를 실행하기 위해 asyncio.run() 사용
-        async def scrape():
-            # [수정] 비동기 메소드인 ascrape_url을 사용합니다.
-            # 이 메소드는 옵션을 두 번째 위치 인자로 받습니다.
-            return await firecrawl.scrape_url_async(url, {"pageOptions": {"onlyMainContent": True}})
-
-        scraped_data = asyncio.run(scrape())
+        # [수정] 동기 클라이언트(firecrawl)의 scrape 메소드 사용
+        # 파라미터는 키워드 인자(url=, params=)로 전달
+        scraped_data = firecrawl.scrape(
+            url=url,
+            params={"pageOptions": {"onlyMainContent": True}}
+        )
 
         # 데이터 추출
         title = scraped_data.get("metadata", {}).get("title", "제목 없음")
@@ -76,13 +77,9 @@ def extract_initial_article_content(url: str) -> tuple[str, str]:
         return title, content
 
     except Exception as e:
-        # nest_asyncio 관련 경고나 다른 asyncio 오류를 고려하여 오류 메시지를 좀 더 명확하게 함
-        if "cannot run current event loop" in str(e):
-             raise Exception(f"기준 기사 분석 중 asyncio 루프 충돌이 발생했습니다. (오류: {e})")
         print(f"❌ FireCrawl 초기 기사 추출 실패: {e}")
         raise Exception(f"기준 기사 분석 중 오류가 발생했습니다. (FireCrawl: {e})")
-
-
+    
 
 async def extract_keywords_with_gemini(title, content, max_count=5):
     """Gemini를 사용해 비동기적으로 핵심 키워드를 추출합니다."""
@@ -183,29 +180,29 @@ def filter_news_by_date(news_items, start_date, end_date):
 # [수정 1] 실패 원인을 함께 반환하도록 함수 구조 변경
 async def extract_article_content_async(link: str, session) -> tuple[str | None, str | None, str | None]:
     """
-    FireCrawl을 사용해 웹사이트 컨텐츠를 추출하고, 실패 시 원인 메시지를 반환합니다.
-    반환값: (제목, 본문, 오류_메시지)
+    FireCrawl의 비동기 클라이언트를 사용해 웹사이트 컨텐츠를 추출합니다.
     """
     try:
-        scraped_data = await firecrawl.scrape_url_async(link, {"pageOptions": {"onlyMainContent": True}})
+        # [수정] 비동기 클라이언트(async_firecrawl)의 scrape 메소드 사용
+        scraped_data = await async_firecrawl.scrape(
+            url=link,
+            params={"pageOptions": {"onlyMainContent": True}}
+        )
 
         content = scraped_data.get("markdown")
         title = scraped_data.get("metadata", {}).get("title")
 
-        # [개선] 크롤링은 성공했으나, 내용이 비어있는 '소프트 실패' 케이스
-        if not content or not title or len(content) < 50: # 내용이 너무 짧은 경우도 실패로 간주
+        if not content or not title or len(content) < 50:
             error_msg = "콘텐츠 추출 실패 (페이지 구조가 복잡하거나 내용이 없음)"
             print(f"🟡 FireCrawl 소프트 실패: {link}, 원인: {error_msg}")
             return None, None, error_msg
 
-        return title, content, None # 성공 시 오류 메시지는 None
+        return title, content, None
 
     except Exception as e:
-        # [개선] API 요청 자체가 실패한 '하드 실패' 케이스
         error_msg = f"API 요청 오류 ({type(e).__name__})"
         print(f"🔥 FireCrawl 하드 실패: {link}, 오류: {e}")
         return None, None, error_msg
-
 
 async def summarize_individual_article_async(title, content):
     prompt = f"""
