@@ -57,8 +57,11 @@ def extract_initial_article_content(url: str) -> tuple[str, str]:
     """
     print(f"🔥 FireCrawl로 기준 기사 분석 시작: {url}")
     try:
-        # FireCrawl의 동기(sync) scrape_url 메소드 사용
-        scraped_data = firecrawl.scrape_url(url, {"pageOptions": {"onlyMainContent": True}})
+        # params 키워드를 추가하여 옵션을 정확하게 전달합니다.
+        scraped_data = firecrawl.scrape_url(
+            url,
+            params={"pageOptions": {"onlyMainContent": True}} # <--- 이 부분 수정
+        )
 
         # 데이터 추출
         title = scraped_data.get("metadata", {}).get("title", "제목 없음")
