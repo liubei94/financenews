@@ -61,7 +61,7 @@ def extract_initial_article_content(url: str) -> tuple[str, str]:
         async def scrape():
             # [수정] 비동기 메소드인 ascrape_url을 사용합니다.
             # 이 메소드는 옵션을 두 번째 위치 인자로 받습니다.
-            return await firecrawl.ascrape_url(url, {"pageOptions": {"onlyMainContent": True}})
+            return await firecrawl.scrape_url_async(url, {"pageOptions": {"onlyMainContent": True}})
 
         scraped_data = asyncio.run(scrape())
 
@@ -187,7 +187,7 @@ async def extract_article_content_async(link: str, session) -> tuple[str | None,
     반환값: (제목, 본문, 오류_메시지)
     """
     try:
-        scraped_data = await firecrawl.ascrape_url(link, {"pageOptions": {"onlyMainContent": True}})
+        scraped_data = await firecrawl.scrape_url_async(link, {"pageOptions": {"onlyMainContent": True}})
 
         content = scraped_data.get("markdown")
         title = scraped_data.get("metadata", {}).get("title")
@@ -491,5 +491,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
-
