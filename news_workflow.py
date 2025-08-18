@@ -1,5 +1,5 @@
 import requests
-from crawl4ai import Crawler
+from firecrawl import FirecrawlApp
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
 import os
@@ -18,6 +18,13 @@ from tqdm.asyncio import tqdm
 
 # Load environment variables
 load_dotenv()
+
+# --- 3. FireCrawl 클라이언트 초기화 코드 추가 ---
+firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
+if not firecrawl_api_key:
+    raise ValueError("FIRECRAWL_API_KEY 환경변수가 설정되지 않았습니다.")
+firecrawl = FirecrawlApp(api_key=firecrawl_api_key)
+# ---------------------------------------------
 
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -181,31 +188,6 @@ async def extract_article_content_async(link: str, session) -> tuple[str | None,
         error_msg = f"API 요청 오류 ({type(e).__name__})"
         print(f"🔥 FireCrawl 하드 실패: {link}, 오류: {e}")
         return None, None, error_msg
-
-
-# [수정 2] 상세화된 실패 원인을 결과에 반영
-async def process_article_task(item, session, semaphore):
-    async with semaphore:
-        link = item.get("originallink", item.get("link"))
-        
-        # [개선] title, content 외에 error_message도 함께 받음
-        title, content, error_message = await extract_article_content_async(link, session)
-        
-        # [개선] 실패 원인(error_message)이 있으면 바로 실패 처리
-        if error_message:
-            return {"status": "failed", "reason": error_message, "link": link}
-
-        summary = await summarize_individual_article_async(title, content)
-        if not summary:
-            return {"status": "failed", "reason": "개별 요약 실패", "link": link}
-        
-        return {
-            "status": "success",
-            "title": re.sub("<.*?>", "", item["title"]),
-            "link": link,
-            "original_item": item,
-            "summary": summary,
-        }
 
 
 async def summarize_individual_article_async(title, content):
