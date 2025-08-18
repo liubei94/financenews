@@ -49,22 +49,31 @@ NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 ### 기능 함수들 (Streamlit에서 호출)
 
 
-def extract_initial_article_content(url):
-    """스크립트 시작 시 기준이 되는 첫 기사를 동기적으로 가져옵니다."""
-    headers = {"User-Agent": "Mozilla/5.0"}
+# FireCrawl을 사용하여 모든 사이트의 콘텐츠를 가져오도록 변경
+def extract_initial_article_content(url: str) -> tuple[str, str]:
+    """
+    FireCrawl을 사용해 기준 기사의 제목과 본문을 동기적으로 추출합니다.
+    이제 네이버 뉴스 외 다른 사이트도 지원합니다.
+    """
+    print(f"🔥 FireCrawl로 기준 기사 분석 시작: {url}")
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        title_tag = soup.find("h2", class_="media_end_head_headline")
-        title = title_tag.get_text(strip=True) if title_tag else "제목 없음"
-        content_tag = soup.select_one("article#dic_area, div#newsct_article")
-        paragraphs = content_tag.find_all("p") if content_tag else []
-        content = " ".join([p.get_text(strip=True) for p in paragraphs])
+        # FireCrawl의 동기(sync) scrape_url 메소드 사용
+        scraped_data = firecrawl.scrape_url(url, {"pageOptions": {"onlyMainContent": True}})
+
+        # 데이터 추출
+        title = scraped_data.get("metadata", {}).get("title", "제목 없음")
+        content = scraped_data.get("markdown")
+
+        # 내용이 없는 경우 에러 처리
+        if not title or not content:
+            raise ValueError("FireCrawl이 기사 제목이나 본문을 추출하지 못했습니다.")
+
         return title, content
-    except requests.RequestException as e:
-        print(f"❌ 초기 기사 추출 실패: {e}")
-        raise
+
+    except Exception as e:
+        print(f"❌ FireCrawl 초기 기사 추출 실패: {e}")
+        # Streamlit에 명확한 오류를 전달하기 위해 예외를 다시 발생시킴
+        raise Exception(f"기준 기사 분석 중 오류가 발생했습니다. (FireCrawl: {e})")
 
 
 async def extract_keywords_with_gemini(title, content, max_count=5):
