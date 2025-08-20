@@ -19,7 +19,7 @@ import json
 # --- [NEW] crawl4ai and Pydantic imports ---
 from pydantic import BaseModel, Field
 from crawl4ai import AsyncWebCrawler
-from crawl4ai.config import CrawlerRunConfig
+from crawl4ai.config import CrawlerConfig
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from crawl4ai.config import LLMConfig
 # ---------------------------------------------
@@ -72,7 +72,7 @@ def extract_initial_article_content(url):
     async def _async_extract(url: str):
         """Asynchronous helper function to run crawl4ai."""
         # [수정됨] cache_mode 대신 use_cache 사용
-        config = CrawlerRunConfig(
+        config = CrawlerConfig(
             extraction_strategy=LLMExtractionStrategy(
                 llm_config=LLMConfig(
                     provider="gemini/gemini-2.5-flash",
@@ -212,7 +212,7 @@ async def extract_article_content_async(link: str):
     crawl4ai를 사용하여 비동기적으로 기사 제목과 본문을 추출합니다.
     """
     # [수정됨] cache_mode 대신 use_cache 사용
-    config = CrawlerRunConfig(
+    config = CrawlerConfig(
         extraction_strategy=LLMExtractionStrategy(
             llm_config=LLMConfig(
                 provider="gemini/gemini-2.5-flash",
@@ -525,3 +525,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
