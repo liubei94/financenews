@@ -1,5 +1,4 @@
 import requests
-from firecrawl import FirecrawlApp, AsyncFirecrawlApp
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
 import os
@@ -15,26 +14,29 @@ import re
 import asyncio
 import httpx
 from tqdm.asyncio import tqdm
+import json
+
+# --- [NEW] crawl4ai and Pydantic imports ---
+from pydantic import BaseModel, Field
+from crawl4ai import AsyncWebCrawler
+from crawl4ai.config import CacheMode, CrawlerRunConfig
+from crawl4ai.extraction_strategy import LLMExtractionStrategy
+from crawl4ai.config import LLMConfig
+# ---------------------------------------------
 
 # Load environment variables
 load_dotenv()
 
-# --- 3. FireCrawl 클라이언트 초기화 코드 추가 ---
-firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
-if not firecrawl_api_key:
-    raise ValueError("FIRECRAWL_API_KEY 환경변수가 설정되지 않았습니다.")
-# ---------------------------------------------
-# 동기 작업을 위한 클라이언트
-firecrawl = FirecrawlApp(api_key=firecrawl_api_key)
-# 비동기 작업을 위한 클라이언트
-async_firecrawl = AsyncFirecrawlApp(api_key=firecrawl_api_key)
-# ---------------------------------------------
+# 비동기 OpenAI 클라이언트 초기화
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Google Gemini 설정 - 필수 사용
 try:
     import google.generativeai as genai
+    # Using GOOGLE_API_KEY to align with genai and crawl4ai usage
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if not google_api_key or not google_api_key.strip():
         raise ValueError("GOOGLE_API_KEY 환경변수가 설정되지 않았습니다.")
@@ -49,37 +51,64 @@ NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 
+# --- Pydantic model for crawl4ai data structure ---
+# LLM에게 어떤 형식으로 데이터를 뽑아낼지 알려주는 '설계도'입니다.
+class NewsArticle(BaseModel):
+    title: str = Field(..., description="The main headline or title of the news article.")
+    content: str = Field(..., description="The full body text of the news article, excluding ads, comments, and navigation links.")
+# ----------------------------------------------------
+
+
+
 ### 기능 함수들 (Streamlit에서 호출)
 
 
-# FireCrawl을 사용하여 모든 사이트의 콘텐츠를 가져오도록 변경
-def extract_initial_article_content(url: str) -> tuple[str, str]:
+# --- [MODIFIED] Replaced BeautifulSoup with crawl4ai for robust extraction ---
+def extract_initial_article_content(url):
     """
-    FireCrawl의 동기 클라이언트를 사용해 기준 기사의 제목과 본문을 추출합니다.
+    스크립트 시작 시 기준이 되는 첫 기사를 동기적으로 가져옵니다.
+    crawl4ai를 사용하여 어떤 뉴스 사이트든 안정적으로 제목과 본문을 추출합니다.
     """
-    print(f"🔥 FireCrawl로 기준 기사 분석 시작: {url}")
-    try:
-        # [수정] 동기 클라이언트(firecrawl)의 scrape 메소드 사용
-        # 파라미터는 키워드 인자(url=, params=)로 전달
-        scraped_data = firecrawl.scrape(
-            url=url,
-            params={"pageOptions": {"onlyMainContent": True}}
+    async def _async_extract(url: str):
+        """Asynchronous helper function to run crawl4ai."""
+        config = CrawlerRunConfig(
+            extraction_strategy=LLMExtractionStrategy(
+                llm_config=LLMConfig(
+                    provider="gemini/gemini-2.5-flash",
+                    api_token=google_api_key  # Use the already loaded key
+                ),
+                schema=NewsArticle.model_json_schema(),
+                instruction="""Extract the title and the main content of the news article.
+                Focus only on the article's body, ignoring comments, related articles, and advertisements.
+                Return the result in JSON format based on the provided schema.""",
+            ),
+            cache_mode=CacheMode.ENABLED
         )
+        try:
+            async with AsyncWebCrawler(verbose=False) as crawler:
+                result = await crawler.arun(url=url, config=config)
+            
+            if result.success and result.extracted_content:
+                extracted_data = json.loads(result.extracted_content)
+                return extracted_data.get("title"), extracted_data.get("content")
+            else:
+                print(f"❌ crawl4ai 초기 기사 추출 실패: {result.error_message}")
+                return None, None
+        except Exception as e:
+            print(f"❌ crawl4ai 실행 중 예외 발생: {e}")
+            return None, None
 
-        # 데이터 추출
-        title = scraped_data.get("metadata", {}).get("title", "제목 없음")
-        content = scraped_data.get("markdown")
-
-        # 내용이 없는 경우 에러 처리
+    try:
+        # Run the async helper function in a synchronous context
+        title, content = asyncio.run(_async_extract(url))
         if not title or not content:
-            raise ValueError("FireCrawl이 기사 제목이나 본문을 추출하지 못했습니다.")
-
+            raise Exception("crawl4ai failed to extract the initial article.")
         return title, content
-
     except Exception as e:
-        print(f"❌ FireCrawl 초기 기사 추출 실패: {e}")
-        raise Exception(f"기준 기사 분석 중 오류가 발생했습니다. (FireCrawl: {e})")
-    
+        print(f"❌ 초기 기사 추출 실패: {e}")
+        raise
+# --------------------------------------------------------------------------
+
 
 async def extract_keywords_with_gemini(title, content, max_count=5):
     """Gemini를 사용해 비동기적으로 핵심 키워드를 추출합니다."""
@@ -177,32 +206,39 @@ def filter_news_by_date(news_items, start_date, end_date):
 # --- 비동기 처리 핵심 로직 ---
 
 
-# [수정 1] 실패 원인을 함께 반환하도록 함수 구조 변경
-async def extract_article_content_async(link: str, session) -> tuple[str | None, str | None, str | None]:
+# --- [MODIFIED] Replaced BeautifulSoup with crawl4ai for robust extraction ---
+async def extract_article_content_async(link: str):
     """
-    FireCrawl의 비동기 클라이언트를 사용해 웹사이트 컨텐츠를 추출합니다.
+    crawl4ai를 사용하여 비동기적으로 기사 제목과 본문을 추출합니다.
     """
+    config = CrawlerRunConfig(
+        extraction_strategy=LLMExtractionStrategy(
+            llm_config=LLMConfig(
+                provider="gemini/gemini-2.5-flash",
+                api_token=google_api_key
+            ),
+            schema=NewsArticle.model_json_schema(),
+            instruction="""Extract the title and the main content of the news article.
+            Focus only on the article's body, ignoring comments, related articles, and advertisements.
+            Return the result in JSON format based on the provided schema.""",
+        ),
+        # Do not use cache here to ensure fresh content for each related article
+        cache_mode=CacheMode.DISABLED 
+    )
     try:
-        # [수정] 비동기 클라이언트(async_firecrawl)의 scrape 메소드 사용
-        scraped_data = await async_firecrawl.scrape(
-            url=link,
-            params={"pageOptions": {"onlyMainContent": True}}
-        )
+        async with AsyncWebCrawler(verbose=False) as crawler:
+            result = await crawler.arun(url=link, config=config)
+        
+        if result.success and result.extracted_content:
+            extracted_data = json.loads(result.extracted_content)
+            return extracted_data.get("title"), extracted_data.get("content")
+        else:
+            return None, None
+    except Exception:
+        return None, None
+# --------------------------------------------------------------------------
 
-        content = scraped_data.get("markdown")
-        title = scraped_data.get("metadata", {}).get("title")
 
-        if not content or not title or len(content) < 50:
-            error_msg = "콘텐츠 추출 실패 (페이지 구조가 복잡하거나 내용이 없음)"
-            print(f"🟡 FireCrawl 소프트 실패: {link}, 원인: {error_msg}")
-            return None, None, error_msg
-
-        return title, content, None
-
-    except Exception as e:
-        error_msg = f"API 요청 오류 ({type(e).__name__})"
-        print(f"🔥 FireCrawl 하드 실패: {link}, 오류: {e}")
-        return None, None, error_msg
 
 async def summarize_individual_article_async(title, content):
     prompt = f"""
@@ -248,10 +284,11 @@ async def summarize_individual_article_async(title, content):
         return None
 
 
-async def process_article_task(item, session, semaphore):
+async def process_article_task(item, semaphore):
     async with semaphore:
         link = item.get("originallink", item.get("link"))
-        title, content = await extract_article_content_async(link, session)
+        # [MODIFIED] Removed unused 'session' argument
+        title, content = await extract_article_content_async(link)
         if not title or not content:
             return {"status": "failed", "reason": "크롤링 실패", "link": link}
         summary = await summarize_individual_article_async(title, content)
