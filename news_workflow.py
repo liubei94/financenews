@@ -19,7 +19,7 @@ import json
 # --- [NEW] crawl4ai and Pydantic imports ---
 from pydantic import BaseModel, Field
 from crawl4ai import AsyncWebCrawler
-from crawl4ai.config import CacheMode, CrawlerRunConfig
+from crawl4ai.config import CrawlerRunConfig
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from crawl4ai.config import LLMConfig
 # ---------------------------------------------
@@ -71,18 +71,19 @@ def extract_initial_article_content(url):
     """
     async def _async_extract(url: str):
         """Asynchronous helper function to run crawl4ai."""
+        # [수정됨] cache_mode 대신 use_cache 사용
         config = CrawlerRunConfig(
             extraction_strategy=LLMExtractionStrategy(
                 llm_config=LLMConfig(
                     provider="gemini/gemini-2.5-flash",
-                    api_token=google_api_key  # Use the already loaded key
+                    api_token=os.getenv("GOOGLE_API_KEY")
                 ),
                 schema=NewsArticle.model_json_schema(),
                 instruction="""Extract the title and the main content of the news article.
                 Focus only on the article's body, ignoring comments, related articles, and advertisements.
                 Return the result in JSON format based on the provided schema.""",
             ),
-            cache_mode=CacheMode.ENABLED
+            use_cache=True  # CacheMode.ENABLED -> use_cache=True
         )
         try:
             async with AsyncWebCrawler(verbose=False) as crawler:
@@ -99,7 +100,6 @@ def extract_initial_article_content(url):
             return None, None
 
     try:
-        # Run the async helper function in a synchronous context
         title, content = asyncio.run(_async_extract(url))
         if not title or not content:
             raise Exception("crawl4ai failed to extract the initial article.")
@@ -211,6 +211,7 @@ async def extract_article_content_async(link: str):
     """
     crawl4ai를 사용하여 비동기적으로 기사 제목과 본문을 추출합니다.
     """
+    # [수정됨] cache_mode 대신 use_cache 사용
     config = CrawlerRunConfig(
         extraction_strategy=LLMExtractionStrategy(
             llm_config=LLMConfig(
@@ -222,8 +223,7 @@ async def extract_article_content_async(link: str):
             Focus only on the article's body, ignoring comments, related articles, and advertisements.
             Return the result in JSON format based on the provided schema.""",
         ),
-        # Do not use cache here to ensure fresh content for each related article
-        cache_mode=CacheMode.DISABLED 
+        use_cache=False # CacheMode.DISABLED -> use_cache=False
     )
     try:
         async with AsyncWebCrawler(verbose=False) as crawler:
