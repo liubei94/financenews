@@ -71,7 +71,7 @@ def extract_initial_article_content(url):
     """
     async def _async_extract(url: str):
         """Asynchronous helper function to run crawl4ai."""
-        # [수정됨] cache_mode 대신 use_cache 사용
+        
         config = CrawlerRunConfig(
             extraction_strategy=LLMExtractionStrategy(
                 llm_config=LLMConfig(
@@ -376,18 +376,30 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
     total_items = len(filtered_items)
 
     # async with httpx.AsyncClient() as session:
-    #    tasks = [process_article_task(item, session, semaphore) for item in filtered_items]
-    #    for i, future in enumerate(asyncio.as_completed(tasks)):
-         tasks = [process_article_task(item, semaphore) for item in filtered_items]
-         for i, future in enumerate(asyncio.as_completed(tasks)):
-            result = await future
-            if result and result["status"] == "success":
-                successful_results.append(result)
-            else:
-                failed_results.append(result or {"status": "failed", "reason": "알 수 없는 오류", "link": ""})
+    #     # tasks = [process_article_task(item, session, semaphore) for item in filtered_items]
+    #     # for i, future in enumerate(asyncio.as_completed(tasks)):
+    #     tasks = [process_article_task(item, semaphore) for item in filtered_items]
+    #     for i, future in enumerate(asyncio.as_completed(tasks)):
+    #         result = await future
+    #         if result and result["status"] == "success":
+    #             successful_results.append(result)
+    #         else:
+    #             failed_results.append(result or {"status": "failed", "reason": "알 수 없는 오류", "link": ""})
 
-            if progress_callback:
-                progress_callback(i + 1, total_items, f"📰 기사 요약 중... ({i + 1}/{total_items})")
+    #         if progress_callback:
+    #             progress_callback(i + 1, total_items, f"📰 기사 요약 중... ({i + 1}/{total_items})")
+
+    # AsyncClient/session not used by process_article_task — 제거하고 tasks를 함수 레벨로 이동
+    tasks = [process_article_task(item, semaphore) for item in filtered_items]
+    for i, future in enumerate(asyncio.as_completed(tasks)):
+        result = await future
+        if result and result["status"] == "success":
+            successful_results.append(result)
+        else:
+            failed_results.append(result or {"status": "failed", "reason": "알 수 없는 오류", "link": ""})
+
+        if progress_callback:
+            progress_callback(i + 1, total_items, f"📰 기사 요약 중... ({i + 1}/{total_items})")
 
     if not successful_results:
         return None, [], []
@@ -527,4 +539,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
