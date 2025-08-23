@@ -18,8 +18,6 @@ import json
 
 # --- [NEW] crawl4ai and Pydantic imports ---
 from pydantic import BaseModel, Field
-from crawl4ai import AsyncWebCrawler
-from pydantic import BaseModel, Field
 from crawl4ai.crawler import AsyncWebCrawler
 from crawl4ai.config import CrawlerConfig, LLMConfig
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
@@ -27,9 +25,6 @@ from crawl4ai.extraction_strategy import LLMExtractionStrategy
 
 # Load environment variables
 load_dotenv()
-
-# 비동기 OpenAI 클라이언트 초기화
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -377,7 +372,7 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
     total_items = len(filtered_items)
 
     async with httpx.AsyncClient() as session:
-        tasks = [process_article_task(item, session, semaphore) for item in filtered_items]
+        tasks = [process_article_task(item, semaphore) for item in filtered_items]
         for i, future in enumerate(asyncio.as_completed(tasks)):
             result = await future
             if result and result["status"] == "success":
@@ -526,6 +521,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
-
-
