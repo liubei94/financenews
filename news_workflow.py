@@ -20,13 +20,15 @@ import json
 from pydantic import BaseModel, Field
 from crawl4ai import AsyncWebCrawler
 from crawl4ai import CrawlerRunConfig, BrowserConfig
-from crawl4ai import CacheMode
 from crawl4ai import LLMConfig
 from crawl4ai import LLMExtractionStrategy
 # ---------------------------------------------
 
 # Load environment variables
 load_dotenv()
+
+# 비동기 OpenAI 클라이언트 초기화
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # 비동기 OpenAI 클라이언트 초기화
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -69,11 +71,11 @@ def extract_initial_article_content(url):
     """
     async def _async_extract(url: str):
         """Asynchronous helper function to run crawl4ai."""
-        # [수정] use_cache 대신 cache_mode 사용
+        # [수정됨] cache_mode 대신 use_cache 사용
         config = CrawlerRunConfig(
             extraction_strategy=LLMExtractionStrategy(
                 llm_config=LLMConfig(
-                    provider="gemini/gemini-1.5-flash", # 모델 이름 변경 권장 (최신)
+                    provider="gemini/gemini-2.5-flash",
                     api_token=os.getenv("GOOGLE_API_KEY")
                 ),
                 schema=NewsArticle.model_json_schema(),
@@ -81,7 +83,7 @@ def extract_initial_article_content(url):
                 Focus only on the article's body, ignoring comments, related articles, and advertisements.
                 Return the result in JSON format based on the provided schema.""",
             ),
-            cache_mode=CacheMode.ENABLED  #  <- 이 부분을 수정했습니다.
+            use_cache=True  # CacheMode.ENABLED -> use_cache=True
         )
         try:
             async with AsyncWebCrawler(verbose=False) as crawler:
@@ -209,11 +211,11 @@ async def extract_article_content_async(link: str):
     """
     crawl4ai를 사용하여 비동기적으로 기사 제목과 본문을 추출합니다.
     """
-    # [수정] use_cache 대신 cache_mode 사용
+    # [수정됨] cache_mode 대신 use_cache 사용
     config = CrawlerRunConfig(
         extraction_strategy=LLMExtractionStrategy(
             llm_config=LLMConfig(
-                provider="gemini/gemini-1.5-flash", # 모델 이름 변경 권장 (최신)
+                provider="gemini/gemini-2.5-flash",
                 api_token=google_api_key
             ),
             schema=NewsArticle.model_json_schema(),
@@ -221,7 +223,7 @@ async def extract_article_content_async(link: str):
             Focus only on the article's body, ignoring comments, related articles, and advertisements.
             Return the result in JSON format based on the provided schema.""",
         ),
-        cache_mode=CacheMode.DISABLED #  <- 이 부분을 수정했습니다.
+        use_cache=False # CacheMode.DISABLED -> use_cache=False
     )
     try:
         async with AsyncWebCrawler(verbose=False) as crawler:
@@ -373,8 +375,8 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
     failed_results = []
     total_items = len(filtered_items)
 
-    async with httpx.AsyncClient()
-        tasks = [process_article_task(item, semaphore) for item in filtered_items]
+    async with httpx.AsyncClient() as session:
+        tasks = [process_article_task(item, session, semaphore) for item in filtered_items]
         for i, future in enumerate(asyncio.as_completed(tasks)):
             result = await future
             if result and result["status"] == "success":
@@ -523,11 +525,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
-
-
-
-
-
-
-
