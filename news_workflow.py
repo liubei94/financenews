@@ -69,7 +69,7 @@ def extract_initial_article_content(url):
     async def _async_extract(url: str):
         """Asynchronous helper function to run crawl4ai."""
         # [수정됨] cache_mode 대신 use_cache 사용
-        config = CrawlerConfig(
+        config = CrawlerRunConfig(
             extraction_strategy=LLMExtractionStrategy(
                 llm_config=LLMConfig(
                     provider="gemini/gemini-2.5-flash",
@@ -522,6 +522,7 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
 
 
 
