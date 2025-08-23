@@ -18,7 +18,8 @@ import json
 
 # --- [NEW] crawl4ai and Pydantic imports ---
 from pydantic import BaseModel, Field
-from crawl4ai import AsyncWebCrawler, CrawlerConfig, LLMConfig
+from crawl4ai.web_crawler import AsyncWebCrawler
+from crawl4ai.config import CrawlerConfig, LLMConfig
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
 # ---------------------------------------------
 
@@ -520,4 +521,5 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
 
