@@ -83,7 +83,7 @@ def extract_initial_article_content(url):
                 Focus only on the article's body, ignoring comments, related articles, and advertisements.
                 Return the result in JSON format based on the provided schema.""",
             ),
-            use_cache=True  # CacheMode.ENABLED -> use_cache=True
+            # use_cache=True  # CacheMode.ENABLED -> use_cache=True
         )
         try:
             async with AsyncWebCrawler(verbose=False) as crawler:
@@ -223,7 +223,7 @@ async def extract_article_content_async(link: str):
             Focus only on the article's body, ignoring comments, related articles, and advertisements.
             Return the result in JSON format based on the provided schema.""",
         ),
-        use_cache=False # CacheMode.DISABLED -> use_cache=False
+        # use_cache=False # CacheMode.DISABLED -> use_cache=False
     )
     try:
         async with AsyncWebCrawler(verbose=False) as crawler:
@@ -375,9 +375,11 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
     failed_results = []
     total_items = len(filtered_items)
 
-    async with httpx.AsyncClient() as session:
-        tasks = [process_article_task(item, session, semaphore) for item in filtered_items]
-        for i, future in enumerate(asyncio.as_completed(tasks)):
+    # async with httpx.AsyncClient() as session:
+    #    tasks = [process_article_task(item, session, semaphore) for item in filtered_items]
+    #    for i, future in enumerate(asyncio.as_completed(tasks)):
+         tasks = [process_article_task(item, semaphore) for item in filtered_items]
+         for i, future in enumerate(asyncio.as_completed(tasks)):
             result = await future
             if result and result["status"] == "success":
                 successful_results.append(result)
@@ -525,3 +527,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
