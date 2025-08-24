@@ -14,7 +14,7 @@ if not lock_file_path.exists():
     with st.spinner("🚀 처음 앱을 설정 중입니다. 브라우저를 다운로드하고 있으니, 1-2분 정도 기다려주세요..."):
         try:
             # Playwright 브라우저와 필요한 시스템 의존성을 함께 설치
-            subprocess.run(["playwright", "install", "--with-deps", "chromium"], check=True)
+            subprocess.run(["playwright", "install", "chromium"], check=True)
             
             # 설치가 성공적으로 완료되면 lock 파일을 생성
             lock_file_path.touch()
@@ -316,5 +316,6 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
+
 
 
