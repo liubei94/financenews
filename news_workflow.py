@@ -18,7 +18,7 @@ import json
 
 # --- [NEW] crawl4ai and Pydantic imports ---
 from pydantic import BaseModel, Field
-from crawl4ai import AsyncWebCrawler
+from crawl4ai import AsyncWebCrawler, CacheMode
 from crawl4ai import CrawlerRunConfig, BrowserConfig
 from crawl4ai import LLMConfig
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
@@ -72,24 +72,30 @@ def extract_initial_article_content(url):
     async def _async_extract(url: str):
         """Asynchronous helper function to run crawl4ai."""
         
+        # 크롤링 및 추출 전략 설정 (참조 코드 기반)
         config = CrawlerRunConfig(
             extraction_strategy=LLMExtractionStrategy(
                 llm_config=LLMConfig(
                     provider="gemini/gemini-2.5-flash",
-                    api_token=os.getenv("GOOGLE_API_KEY")
+                    # 기존 코드의 환경변수명을 유지합니다.
+                    api_token=os.getenv("GOOGLE_API_KEY") 
                 ),
                 schema=NewsArticle.model_json_schema(),
                 instruction="""Extract the title and the main content of the news article.
                 Focus only on the article's body, ignoring comments, related articles, and advertisements.
                 Return the result in JSON format based on the provided schema.""",
             ),
-            # use_cache=True  # CacheMode.ENABLED -> use_cache=True
+            # 반복 테스트 시 비용과 시간을 절약하기 위해 캐시를 활성화합니다.
+            cache_mode=CacheMode.ENABLED
         )
         try:
+            # 크롤러를 비동기적으로 실행합니다.
             async with AsyncWebCrawler(verbose=False) as crawler:
                 result = await crawler.arun(url=url, config=config)
             
+            # 결과를 처리합니다.
             if result.success and result.extracted_content:
+                # 추출된 JSON 문자열을 파이썬 딕셔너리로 변환합니다.
                 extracted_data = json.loads(result.extracted_content)
                 return extracted_data.get("title"), extracted_data.get("content")
             else:
@@ -99,16 +105,17 @@ def extract_initial_article_content(url):
             print(f"❌ crawl4ai 실행 중 예외 발생: {e}")
             return None, None
 
+    # 동기 함수 내에서 비동기 함수를 실행하기 위해 asyncio.run()을 사용합니다.
     try:
         title, content = asyncio.run(_async_extract(url))
         if not title or not content:
-            raise Exception("crawl4ai failed to extract the initial article.")
+            raise Exception("crawl4ai가 초기 기사에서 유효한 제목과 본문을 추출하지 못했습니다.")
+        print("✅ crawl4ai 초기 기사 추출 성공!")
         return title, content
     except Exception as e:
-        print(f"❌ 초기 기사 추출 실패: {e}")
+        print(f"❌ 초기 기사 추출 전체 과정 실패: {e}")
         raise
 # --------------------------------------------------------------------------
-
 
 async def extract_keywords_with_gemini(title, content, max_count=5):
     """Gemini를 사용해 비동기적으로 핵심 키워드를 추출합니다."""
@@ -539,4 +546,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
