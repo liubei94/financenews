@@ -1,11 +1,3 @@
-# ==============================================================================
-# Streamlit 앱 실행 전, Playwright 브라우저를 미리 설치하여 inotify 에러를 방지합니다.
-# ==============================================================================
---pre
---find-links https://cdn.jsdelivr.net/gh/shenweiy/playwright-browser-binary/archives
-playwright-chromium==1.42.0-20240321
-
-
 # Streamlit UI Framework
 streamlit
 
@@ -36,5 +28,3 @@ google-genai
 
 # LLM-based web scraping and content extraction
 crawl4ai
-
-
