@@ -7,6 +7,9 @@ textColor="#000000"
 font="sans serif"
 
 [server]
-# Playwright가 생성하는 브라우저 캐시 폴더와 같이 파일이 매우 많은 폴더를
-# Streamlit의 파일 감시 대상에서 제외하여 'inotify limit' 에러를 방지합니다.
+# inotify 에러 방지를 위해 파일 감시 예외처리 (필수)
 folderWatchBlacklist = [".cache", "ms-playwright"]
+
+[runner]
+# 앱 실행 전 setup.sh 스크립트 실행 (필수)
+pre-exec = ["./setup.sh"]
