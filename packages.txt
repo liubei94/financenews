@@ -1,4 +1,3 @@
-# Playwright가 사용하는 Chromium 브라우저가 의존하는 시스템 라이브러리 목록
 libnss3
 libxss1
 libasound2
