@@ -49,7 +49,6 @@ NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 
 # --- Pydantic model for crawl4ai data structure ---
-# LLM에게 어떤 형식으로 데이터를 뽑아낼지 알려주는 '설계도'입니다.
 class NewsArticle(BaseModel):
     title: str = Field(..., description="The main headline or title of the news article.")
     content: str = Field(..., description="The full body text of the news article, excluding ads, comments, and navigation links.")
@@ -59,9 +58,6 @@ class NewsArticle(BaseModel):
 
 ### 기능 함수들 (Streamlit에서 호출)
 
-
-# --- [MODIFIED] Replaced BeautifulSoup with crawl4ai for robust extraction ---
-# [수정됨] 함수를 완전한 비동기(async def) 함수로 변경하여 asyncio.run() 중첩 문제를 해결합니다.
 async def extract_initial_article_content_async(url: str):
     """
     스크립트 시작 시 기준이 되는 첫 기사를 비동기적으로 가져옵니다.
@@ -70,7 +66,7 @@ async def extract_initial_article_content_async(url: str):
     config = CrawlerRunConfig(
         extraction_strategy=LLMExtractionStrategy(
             llm_config=LLMConfig(
-                provider="gemini/gemini-2.5-flash",
+                provider="gemini/gemini-1.5-flash",
                 api_token=os.getenv("GOOGLE_API_KEY")
             ),
             schema=NewsArticle.model_json_schema(),
@@ -86,19 +82,30 @@ async def extract_initial_article_content_async(url: str):
 
         if result.success and result.extracted_content:
             extracted_data = json.loads(result.extracted_content)
-            title = extracted_data.get("title")
-            content = extracted_data.get("content")
-            if not title or not content:
-                raise Exception("crawl4ai가 초기 기사에서 유효한 제목과 본문을 추출하지 못했습니다.")
-            print("✅ crawl4ai 초기 기사 추출 성공!")
-            return title, content
+
+            # --- [수정됨] LLM이 리스트를 반환하는 경우에 대한 방어 코드 추가 ---
+            article_dict = None
+            if isinstance(extracted_data, list) and extracted_data:
+                article_dict = extracted_data[0]
+            elif isinstance(extracted_data, dict):
+                article_dict = extracted_data
+
+            if article_dict:
+                title = article_dict.get("title")
+                content = article_dict.get("content")
+                if not title or not content:
+                    raise Exception("crawl4ai가 초기 기사에서 유효한 제목과 본문을 추출하지 못했습니다.")
+                print("✅ crawl4ai 초기 기사 추출 성공!")
+                return title, content
+            # ----------------------------------------------------------
+            
+            raise Exception("crawl4ai가 초기 기사에서 유효한 데이터를 추출하지 못했습니다.")
         else:
             print(f"❌ crawl4ai 초기 기사 추출 실패: {result.error_message}")
             raise Exception(f"crawl4ai 초기 기사 추출 실패: {result.error_message}")
     except Exception as e:
         print(f"❌ 초기 기사 추출 전체 과정 실패: {e}")
         raise
-# --------------------------------------------------------------------------
 
 async def extract_keywords_with_gemini(title, content, max_count=5):
     """Gemini를 사용해 비동기적으로 핵심 키워드를 추출합니다."""
@@ -113,7 +120,7 @@ async def extract_keywords_with_gemini(title, content, max_count=5):
     
     def generate_keywords_sync():
         try:
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             contents = [prompt]
             generation_config = {"temperature": 0.2}
 
@@ -187,10 +194,6 @@ def filter_news_by_date(news_items, start_date, end_date):
     return filtered_items
 
 
-# --- 비동기 처리 핵심 로직 ---
-
-
-# --- [MODIFIED] Replaced BeautifulSoup with crawl4ai for robust extraction ---
 async def extract_article_content_async(link: str):
     """
     crawl4ai를 사용하여 비동기적으로 기사 제목과 본문을 추출합니다.
@@ -198,7 +201,7 @@ async def extract_article_content_async(link: str):
     config = CrawlerRunConfig(
         extraction_strategy=LLMExtractionStrategy(
             llm_config=LLMConfig(
-                provider="gemini/gemini-2.5-flash",
+                provider="gemini/gemini-1.5-flash",
                 api_token=google_api_key
             ),
             schema=NewsArticle.model_json_schema(),
@@ -213,13 +216,21 @@ async def extract_article_content_async(link: str):
         
         if result.success and result.extracted_content:
             extracted_data = json.loads(result.extracted_content)
-            return extracted_data.get("title"), extracted_data.get("content")
-        else:
-            return None, None
+
+            # --- [수정됨] LLM이 리스트를 반환하는 경우에 대한 방어 코드 추가 ---
+            article_dict = None
+            if isinstance(extracted_data, list) and extracted_data:
+                article_dict = extracted_data[0]
+            elif isinstance(extracted_data, dict):
+                article_dict = extracted_data
+            
+            if article_dict:
+                return article_dict.get("title"), article_dict.get("content")
+            # ----------------------------------------------------------
+
+        return None, None
     except Exception:
         return None, None
-# --------------------------------------------------------------------------
-
 
 
 async def summarize_individual_article_async(title, content):
@@ -231,7 +242,7 @@ async def summarize_individual_article_async(title, content):
 """
     def generate_summary_sync():
         try:
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             system_prompt = "당신은 뉴스 분석가입니다. 기사의 핵심만 정확하게 추출하여 요약합니다."
             contents = [system_prompt, prompt]
             generation_config = {"temperature": 0.2}
@@ -321,7 +332,7 @@ async def synthesize_final_report(summaries):
 
     def generate_content_sync():
         try:
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             generation_config = {"temperature": 0.2} 
             response = model.generate_content(
                 contents=[system_prompt, user_prompt],
@@ -393,7 +404,7 @@ def save_summary_to_word(summary_text, successful_results, output_stream):
         if not line or line == "---":
             continue
 
-        p = None 
+        p = None
 
         if line.startswith("### "):
             p = doc.add_paragraph()
