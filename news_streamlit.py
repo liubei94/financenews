@@ -1,5 +1,37 @@
 import streamlit as st
 import os
+
+import subprocess
+from pathlib import Path
+
+# --- [추가] Playwright 브라우저 설치 로직 ---
+
+# 설치 완료를 기록할 파일 경로
+lock_file_path = Path("./.streamlit/playwright_installed.lock")
+
+# lock 파일이 존재하지 않을 때만 설치 스크립트를 실행
+if not lock_file_path.exists():
+    with st.spinner("🚀 처음 앱을 설정 중입니다. 브라우저를 다운로드하고 있으니, 1-2분 정도 기다려주세요..."):
+        try:
+            # Playwright 브라우저와 필요한 시스템 의존성을 함께 설치
+            subprocess.run(["playwright", "install", "--with-deps", "chromium"], check=True)
+            
+            # 설치가 성공적으로 완료되면 lock 파일을 생성
+            lock_file_path.touch()
+            
+            # 성공 메시지 후 재실행하여 앱을 정상 시작
+            st.success("✅ 브라우저 설정 완료! 앱을 다시 시작합니다.")
+            st.rerun()
+            
+        except subprocess.CalledProcessError as e:
+            st.error(f"🚫 브라우저 설치에 실패했습니다: {e}")
+            st.error("오류가 지속되면 앱 로그를 확인하고 관리자에게 문의하세요.")
+            st.stop()
+        except FileNotFoundError:
+            st.error("🚫 Playwright를 찾을 수 없습니다. requirements.txt에 'playwright'가 포함되어 있는지 확인하세요.")
+            st.stop()
+
+
 from datetime import datetime, date
 from io import BytesIO
 import asyncio
@@ -284,4 +316,5 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
+
 
