@@ -9,7 +9,3 @@ font="sans serif"
 [server]
 # inotify 에러 방지를 위해 파일 감시 예외처리 (필수)
 folderWatchBlacklist = [".cache", "ms-playwright"]
-
-[runner]
-# 앱 실행 전 setup.sh 스크립트 실행 (필수)
-pre-exec = ["./setup.sh"]
