@@ -1,45 +1,13 @@
 import streamlit as st
 import os
-
-import subprocess
-from pathlib import Path
-
-# --- [추가] Playwright 브라우저 설치 로직 ---
-
-# 설치 완료를 기록할 파일 경로
-lock_file_path = Path("./.streamlit/playwright_installed.lock")
-
-# lock 파일이 존재하지 않을 때만 설치 스크립트를 실행
-if not lock_file_path.exists():
-    with st.spinner("🚀 처음 앱을 설정 중입니다. 브라우저를 다운로드하고 있으니, 1-2분 정도 기다려주세요..."):
-        try:
-            # Playwright 브라우저와 필요한 시스템 의존성을 함께 설치
-            subprocess.run(["playwright", "install", "chromium"], check=True)
-            
-            # 설치가 성공적으로 완료되면 lock 파일을 생성
-            lock_file_path.touch()
-            
-            # 성공 메시지 후 재실행하여 앱을 정상 시작
-            st.success("✅ 브라우저 설정 완료! 앱을 다시 시작합니다.")
-            st.rerun()
-            
-        except subprocess.CalledProcessError as e:
-            st.error(f"🚫 브라우저 설치에 실패했습니다: {e}")
-            st.error("오류가 지속되면 앱 로그를 확인하고 관리자에게 문의하세요.")
-            st.stop()
-        except FileNotFoundError:
-            st.error("🚫 Playwright를 찾을 수 없습니다. requirements.txt에 'playwright'가 포함되어 있는지 확인하세요.")
-            st.stop()
-
-
 from datetime import datetime, date
 from io import BytesIO
 import asyncio
 import re
 
-# [수정됨] 수정한 비동기 함수를 import 합니다.
+# 최적화된 백엔드 워크플로우 함수들을 import
 from news_workflow import (
-    extract_initial_article_content_async,
+    extract_initial_article_content,
     extract_keywords_with_gemini,
     search_news_naver,
     filter_news_by_date,
@@ -121,6 +89,7 @@ with st.form("input_form"):
         placeholder="https://n.news.naver.com/article/...",
     )
 
+    # [추가] 키워드 개수 선택 UI
     keyword_count = st.number_input(
         "🤖 AI가 추출할 최대 키워드 개수",
         min_value=3, max_value=10, value=5, step=1,
@@ -145,18 +114,6 @@ if "step" not in st.session_state:
 
 # --- 로직 실행 ---
 
-# [수정됨] 1단계 키워드 추출을 위한 비동기 작업을 하나의 함수로 묶습니다.
-async def run_keyword_extraction_flow():
-    """기준 기사 크롤링과 키워드 추출을 순차적으로 실행하는 비동기 함수"""
-    title, content = await extract_initial_article_content_async(link)
-    keywords = await extract_keywords_with_gemini(title, content, max_count=keyword_count)
-    
-    # 비동기 작업이 모두 끝난 후 session_state를 업데이트합니다.
-    st.session_state.keywords = keywords
-    st.session_state.step = "keywords_ready"
-    st.session_state.final_keywords = keywords[:]
-
-
 # 1단계: 키워드 추출
 if submitted:
     if not link:
@@ -166,9 +123,13 @@ if submitted:
     else:
         with st.spinner(f"기준 기사를 분석하고 Gemini로 키워드 {keyword_count}개를 추출 중입니다..."):
             try:
-                # [수정됨] 통합된 비동기 함수를 asyncio.run으로 한 번만 호출합니다.
-                asyncio.run(run_keyword_extraction_flow())
-                st.rerun() # 작업 완료 후 화면을 새로고침하여 다음 단계 UI를 표시합니다.
+                title, content = extract_initial_article_content(link)
+                st.session_state.keywords = asyncio.run(
+                    extract_keywords_with_gemini(title, content, max_count=keyword_count)
+                )
+                st.session_state.step = "keywords_ready"
+                st.session_state.final_keywords = st.session_state.keywords[:]
+                st.rerun()
             except Exception as e:
                 st.error(f"❌ 키워드 추출 중 오류 발생: {e}")
                 st.session_state.step = "initial"
@@ -183,21 +144,29 @@ if st.session_state.step == "keywords_ready":
 
     st.markdown("### ✍️ 분석에 사용할 최종 키워드 편집")
 
+    # --- [개선된 부분] 태그 스타일 UI 로직 ---
+
+    # 1. 키워드 추가 콜백 함수 (중복 체크 로직 제거)
     def add_keyword():
         new_kw = st.session_state.new_keyword_input.strip()
+        # [수정] 중복 여부와 관계없이 키워드를 추가하도록 변경
         if new_kw:
             st.session_state.final_keywords.append(new_kw)
         st.session_state.new_keyword_input = ""
 
+
+    # 2. 현재 키워드를 태그 형태로 표시 (삭제 로직 수정)
     st.write("**현재 키워드 목록:**")
     if 'final_keywords' in st.session_state and st.session_state.final_keywords:
         num_columns = 5
         keyword_chunks = [st.session_state.final_keywords[i:i + num_columns] for i in range(0, len(st.session_state.final_keywords), num_columns)]
 
+        # [수정] 각 키워드의 '고유한 순서(인덱스)'를 기준으로 삭제 로직을 처리
         for chunk_index, chunk in enumerate(keyword_chunks):
             cols = st.columns(num_columns)
             for i, keyword in enumerate(chunk):
                 with cols[i]:
+                    # 청크와 내부 순서를 조합해 실제 전체 리스트에서의 인덱스 계산
                     original_index = chunk_index * num_columns + i
 
                     with st.container(border=True):
@@ -205,12 +174,15 @@ if st.session_state.step == "keywords_ready":
                         with sub_cols[0]:
                             st.markdown(f"{keyword}")
                         with sub_cols[1]:
+                            # [수정] 버튼의 key와 삭제 로직 모두 고유 인덱스를 사용
                             if st.button("×", key=f"delete_{original_index}", help=f"'{keyword}' 삭제"):
                                 st.session_state.final_keywords.pop(original_index)
                                 st.rerun()
     else:
         st.info("분석할 키워드가 없습니다. 아래에서 추가해주세요.")
 
+
+    # 3. 새 키워드 입력창
     st.text_input(
         "새 키워드 추가",
         key="new_keyword_input",
@@ -218,9 +190,11 @@ if st.session_state.step == "keywords_ready":
         placeholder="키워드 입력 후 Enter...",
         label_visibility="collapsed",
     )
+    # --- 개선된 부분 끝 ---
 
     st.markdown("---")
 
+    # --- 3. 최종 설정 및 제출 폼 ---
     with st.form("process_form"):
         st.markdown("### ⚙️ 리포트 생성 설정")
 
@@ -261,8 +235,7 @@ if st.session_state.step == "keywords_ready":
                         "❌ 지정된 기간 내에 관련 뉴스를 찾지 못했습니다. 기간이나 키워드를 조정해보세요."
                     )
                     st.stop()
-                
-                # 이 부분의 asyncio.run()은 단독으로 실행되므로 문제가 없습니다.
+
                 final_report, successful_results, failed_results = asyncio.run(
                     run_analysis_and_synthesis_async(
                         filtered_items, progress_callback=update_progress
@@ -316,6 +289,3 @@ if st.session_state.step == "done":
         ):
             for item in st.session_state.failed_results:
                 st.write(f"- **사유:** {item['reason']} / **링크:** {item['link']}")
-
-
-
