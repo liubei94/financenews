@@ -304,35 +304,47 @@ async def summarize_individual_article_async(title, content):
         return None
 
 
+# [수정] process_article_task 함수를 아래 내용으로 완전히 교체합니다.
 async def process_article_task(item, semaphore):
     async with semaphore:
-        # [수정] 네이버 링크를 우선 사용하도록 순서를 변경합니다.
-        link = item.get("link", item.get("originallink"))
-        
+        # [핵심 수정] 원문 링크(originallink)를 기본으로 사용하고, 없을 때만 네이버 링크(link)를 사용합니다.
+        # 이렇게 하면 대부분의 기사는 안정적인 원문 사이트로 바로 접속하게 됩니다.
+        link_to_crawl = item.get("originallink", item.get("link"))
+
+        # 네이버 뉴스 링크(n.news.naver.com)는 예외적으로 리다이렉션 되는 경우가 많아
+        # 네이버 API가 제공하는 원문 링크로 직접 접속하는 것이 훨씬 안정적입니다.
+        if "n.news.naver.com" in link_to_crawl and item.get("originallink"):
+             link_to_crawl = item["originallink"]
+             print(f"➡️ 네이버 뉴스 링크 감지, 원문 링크로 변경: {link_to_crawl}")
+
+
         title, content = None, None
 
-        # 1. n.news.naver.com 링크인 경우, 먼저 빠른 네이버 전용 스크래퍼를 시도합니다.
-        if "n.news.naver.com" in link:
-            title, content = await extract_naver_article_fast_async(link)
+        # 1. 'n.news.naver.com' 링크가 (어쩔 수 없이) 사용될 경우, 빠른 스크래퍼를 먼저 시도합니다.
+        if "n.news.naver.com" in link_to_crawl:
+            title, content = await extract_naver_article_fast_async(link_to_crawl)
 
-        # 2. 빠른 스크래핑에 실패했거나, 네이버 링크가 아닐 경우, crawl4ai를 이용한 강력한 폴백(Fallback)을 실행합니다.
+        # 2. 빠른 스크래핑이 실패했거나, 처음부터 원문 링크였던 경우, crawl4ai를 사용합니다.
+        #    이것이 대부분의 케이스가 될 것입니다.
         if not title or not content:
-            print(f"➡️ crawl4ai 폴백 실행: {link}")
-            title, content = await extract_article_content_async(link)
+            if "n.news.naver.com" in link_to_crawl:
+                 print(f"⚠️ 빠른 스크래핑 실패, crawl4ai 폴백 실행: {link_to_crawl}")
+            # crawl4ai가 원문 링크를 안정적으로 처리합니다.
+            title, content = await extract_article_content_async(link_to_crawl)
         
         # 두 방식 모두 실패한 경우
         if not title or not content:
-            return {"status": "failed", "reason": "크롤링 실패", "link": link}
+            return {"status": "failed", "reason": "크롤링 실패", "link": link_to_crawl}
         
         # 요약 진행
         summary = await summarize_individual_article_async(title, content)
         if not summary:
-            return {"status": "failed", "reason": "개별 요약 실패", "link": link}
+            return {"status": "failed", "reason": "개별 요약 실패", "link": link_to_crawl}
             
         return {
             "status": "success",
             "title": re.sub("<.*?>", "", item["title"]),
-            "link": link,
+            "link": link_to_crawl,  # 실제 크롤링한 링크를 저장
             "original_item": item,
             "summary": summary,
         }
@@ -553,3 +565,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
