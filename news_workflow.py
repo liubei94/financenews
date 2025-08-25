@@ -14,15 +14,6 @@ import re
 import asyncio
 import httpx
 from tqdm.asyncio import tqdm
-import json
-
-# --- [NEW] crawl4ai and Pydantic imports ---
-from pydantic import BaseModel, Field
-from crawl4ai import AsyncWebCrawler, CacheMode
-from crawl4ai import CrawlerRunConfig, BrowserConfig
-from crawl4ai import LLMConfig
-from crawl4ai.extraction_strategy import LLMExtractionStrategy
-# ---------------------------------------------
 
 # Load environment variables
 load_dotenv()
@@ -33,7 +24,6 @@ client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Google Gemini 설정 - 필수 사용
 try:
     import google.generativeai as genai
-    # Using GOOGLE_API_KEY to align with genai and crawl4ai usage
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if not google_api_key or not google_api_key.strip():
         raise ValueError("GOOGLE_API_KEY 환경변수가 설정되지 않았습니다.")
@@ -48,67 +38,30 @@ NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 
-# --- Pydantic model for crawl4ai data structure ---
-class NewsArticle(BaseModel):
-    title: str = Field(..., description="The main headline or title of the news article.")
-    content: str = Field(..., description="The full body text of the news article, excluding ads, comments, and navigation links.")
-# ----------------------------------------------------
-
-
-
 ### 기능 함수들 (Streamlit에서 호출)
 
-async def extract_initial_article_content_async(url: str):
-    """
-    스크립트 시작 시 기준이 되는 첫 기사를 비동기적으로 가져옵니다.
-    crawl4ai를 사용하여 어떤 뉴스 사이트든 안정적으로 제목과 본문을 추출합니다.
-    """
-    config = CrawlerRunConfig(
-        extraction_strategy=LLMExtractionStrategy(
-            llm_config=LLMConfig(
-                provider="gemini/gemini-1.5-flash",
-                api_token=os.getenv("GOOGLE_API_KEY")
-            ),
-            schema=NewsArticle.model_json_schema(),
-            instruction="""Extract the title and the main content of the news article.
-            Focus only on the article's body, ignoring comments, related articles, and advertisements.
-            Return the result in JSON format based on the provided schema.""",
-        ),
-        cache_mode=CacheMode.DISABLED
-    )
+
+def extract_initial_article_content(url):
+    """스크립트 시작 시 기준이 되는 첫 기사를 동기적으로 가져옵니다."""
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        async with AsyncWebCrawler(verbose=False) as crawler:
-            result = await crawler.arun(url=url, config=config)
-
-        if result.success and result.extracted_content:
-            extracted_data = json.loads(result.extracted_content)
-
-            # --- [수정됨] LLM이 리스트를 반환하는 경우에 대한 방어 코드 추가 ---
-            article_dict = None
-            if isinstance(extracted_data, list) and extracted_data:
-                article_dict = extracted_data[0]
-            elif isinstance(extracted_data, dict):
-                article_dict = extracted_data
-
-            if article_dict:
-                title = article_dict.get("title")
-                content = article_dict.get("content")
-                if not title or not content:
-                    raise Exception("crawl4ai가 초기 기사에서 유효한 제목과 본문을 추출하지 못했습니다.")
-                print("✅ crawl4ai 초기 기사 추출 성공!")
-                return title, content
-            # ----------------------------------------------------------
-            
-            raise Exception("crawl4ai가 초기 기사에서 유효한 데이터를 추출하지 못했습니다.")
-        else:
-            print(f"❌ crawl4ai 초기 기사 추출 실패: {result.error_message}")
-            raise Exception(f"crawl4ai 초기 기사 추출 실패: {result.error_message}")
-    except Exception as e:
-        print(f"❌ 초기 기사 추출 전체 과정 실패: {e}")
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        title_tag = soup.find("h2", class_="media_end_head_headline")
+        title = title_tag.get_text(strip=True) if title_tag else "제목 없음"
+        content_tag = soup.select_one("article#dic_area, div#newsct_article")
+        paragraphs = content_tag.find_all("p") if content_tag else []
+        content = " ".join([p.get_text(strip=True) for p in paragraphs])
+        return title, content
+    except requests.RequestException as e:
+        print(f"❌ 초기 기사 추출 실패: {e}")
         raise
+
 
 async def extract_keywords_with_gemini(title, content, max_count=5):
     """Gemini를 사용해 비동기적으로 핵심 키워드를 추출합니다."""
+    # Gemini에 전달할 프롬프트 (기존과 동일)
     prompt = f"""
 다음은 뉴스의 제목과 본문입니다. 이 기사의 핵심 주제를 가장 잘 나타내는 키워드를 최대 {max_count}개까지 한글로 추출해주세요.
 - 각 키워드는 명사 형태로 간결하게 제시해주세요.
@@ -118,9 +71,12 @@ async def extract_keywords_with_gemini(title, content, max_count=5):
 본문: {content}
 """
     
+    # --- [수정] Gemini API 호출 방식으로 변경 ---
     def generate_keywords_sync():
+        """Gemini API를 동기적으로 호출하는 내부 함수"""
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            # Gemini는 시스템 프롬프트가 필수가 아니므로, 사용자 프롬프트만 전달
             contents = [prompt]
             generation_config = {"temperature": 0.2}
 
@@ -142,6 +98,8 @@ async def extract_keywords_with_gemini(title, content, max_count=5):
         if not keywords_text:
             raise Exception("Gemini로부터 키워드를 받지 못했습니다.")
 
+        # --- 기존과 동일한 후처리 로직 ---
+        # AI가 생성한 텍스트에서 키워드를 파싱하고 정리합니다.
         lines = keywords_text.split("\n")
         keywords_list = []
         for line in lines:
@@ -193,79 +151,56 @@ def filter_news_by_date(news_items, start_date, end_date):
             continue
     return filtered_items
 
-# [추가] 네이버 뉴스 전용 빠른 스크래퍼 함수
-async def extract_naver_article_fast_async(link: str):
-    """
-    n.news.naver.com 링크에 대해 httpx와 BeautifulSoup를 사용해 빠르게 내용을 추출합니다.
-    """
+
+# --- 비동기 처리 핵심 로직 ---
+
+
+async def extract_article_content_async(link, session):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
     try:
-        async with httpx.AsyncClient() as session:
-            response = await session.get(link, headers=headers, timeout=10, follow_redirects=True)
-            response.raise_for_status()
-            
+        response = await session.get(
+            link, headers=headers, timeout=15, follow_redirects=True
+        )
+        response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
-        
-        # 네이버 뉴스 타이틀 추출
-        title_tag = soup.find("meta", property="og:title")
-        title = title_tag["content"].strip() if title_tag else "제목 없음"
-        
-        # 네이버 뉴스 본문 선택자 (가장 일반적인 2가지)
         content_area = soup.select_one("article#dic_area, div#newsct_article")
-        
         if content_area:
-            # 불필요한 요소 제거 (예: 기자 정보, 저작권 문구 등)
-            for el in content_area.select("span.byline, div.journalist_area, p.copyright"):
-                el.decompose()
-            content = content_area.get_text(separator="\n", strip=True)
-            # 성공 시 제목과 본문 반환
-            if content:
-                print(f"✅ 빠른 스크래핑 성공: {link}")
-                return title, content
-
-    except Exception as e:
-        print(f"⚠️ 빠른 스크래핑 실패: {link}, 오류: {e}")
-        pass # 실패 시 아래 crawl4ai가 처리하도록 None 반환
-        
-    return None, None
-
-async def extract_article_content_async(link: str):
-    """
-    crawl4ai를 사용하여 비동기적으로 기사 제목과 본문을 추출합니다.
-    """
-    config = CrawlerRunConfig(
-        extraction_strategy=LLMExtractionStrategy(
-            llm_config=LLMConfig(
-                provider="gemini/gemini-1.5-flash",
-                api_token=google_api_key
-            ),
-            schema=NewsArticle.model_json_schema(),
-            instruction="""Extract the title and the main content of the news article.
-            Focus only on the article's body, ignoring comments, related articles, and advertisements.
-            Return the result in JSON format based on the provided schema.""",
-        ),
-    )
-    try:
-        async with AsyncWebCrawler(verbose=False) as crawler:
-            result = await crawler.arun(url=link, config=config)
-        
-        if result.success and result.extracted_content:
-            extracted_data = json.loads(result.extracted_content)
-
-            # --- [수정됨] LLM이 리스트를 반환하는 경우에 대한 방어 코드 추가 ---
-            article_dict = None
-            if isinstance(extracted_data, list) and extracted_data:
-                article_dict = extracted_data[0]
-            elif isinstance(extracted_data, dict):
-                article_dict = extracted_data
-            
-            if article_dict:
-                return article_dict.get("title"), article_dict.get("content")
-            # ----------------------------------------------------------
-
-        return None, None
+            title_tag = soup.find("meta", property="og:title")
+            title = title_tag["content"].strip() if title_tag else "제목 없음"
+            content = " ".join(
+                p.get_text(strip=True)
+                for p in content_area.find_all("p")
+                if p.get_text(strip=True)
+            )
+            return title, content
+        title_tag = soup.find("meta", property="og:title")
+        title = title_tag["content"].strip() if title_tag else soup.title.string.strip()
+        selectors = [
+            "div.article_body",
+            "div.article_view",
+            "div#article-body",
+            "div#news_body_area",
+            "div.article_txt",
+            "div#article_body",
+            "div.article-text",
+            "section.article-body",
+        ]
+        content_area = soup.select_one(", ".join(selectors))
+        paragraphs = (
+            content_area.find_all("p")
+            if content_area
+            else soup.find("body").find_all("p")
+        )
+        content = " ".join(
+            [
+                p.get_text(strip=True)
+                for p in paragraphs
+                if len(p.get_text(strip=True)) > 50
+            ]
+        )
+        return title, content
     except Exception:
         return None, None
 
@@ -277,18 +212,27 @@ async def summarize_individual_article_async(title, content):
 ---
 제목: {title}\n본문: {content}
 """
+    # --- [수정] Gemini API 호출 방식으로 변경 ---
     def generate_summary_sync():
+        """Gemini API를 동기적으로 호출하는 내부 함수"""
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            # 1. Gemini 모델 객체 생성 (2.5-flash 모델 사용)
+            model = genai.GenerativeModel('gemini-2.5-flash')
+
+            # 2. 시스템 지시와 사용자 프롬프트를 리스트로 구성
             system_prompt = "당신은 뉴스 분석가입니다. 기사의 핵심만 정확하게 추출하여 요약합니다."
             contents = [system_prompt, prompt]
+
+            # 3. 생성 옵션 설정
             generation_config = {"temperature": 0.2}
 
+            # 4. API 호출
             response = model.generate_content(
                 contents=contents,
                 generation_config=generation_config
             )
 
+            # 5. 응답 텍스트 반환 (안전장치 포함)
             if not response.parts:
                 print("⚠️ Gemini API가 빈 응답을 반환했습니다.")
                 return None
@@ -298,50 +242,35 @@ async def summarize_individual_article_async(title, content):
             return None
 
     try:
+        # 동기 함수를 비동기적으로 실행
         summary = await asyncio.to_thread(generate_summary_sync)
         return summary
     except Exception:
         return None
 
 
-async def process_article_task(item, semaphore):
+async def process_article_task(item, session, semaphore):
     async with semaphore:
-        naver_link = item.get("link")
-        original_link = item.get("originallink")
-        
-        title, content = None, None
-        final_link_crawled = naver_link  # 기본적으로 시도할 링크
-
-        # 1. 네이버 링크가 있다면, 최우선으로 빠른 스크래퍼를 시도합니다.
-        if naver_link:
-            title, content = await extract_naver_article_fast_async(naver_link)
-
-        # 2. 빠른 스크래핑이 실패했고 (title, content가 비어있고), 
-        #    폴백으로 시도할 '원문 링크'가 존재한다면 crawl4ai를 사용합니다.
-        if (not title or not content) and original_link:
-            print(f"⚠️ 빠른 스크래핑 실패, 원문 링크({original_link})로 crawl4ai 폴백 실행")
-            final_link_crawled = original_link  # 실제로 크롤링할 링크를 원문 링크로 변경
-            title, content = await extract_article_content_async(original_link)
-        
-        # 모든 시도가 실패한 경우
+        link = item.get("originallink", item.get("link"))
+        title, content = await extract_article_content_async(link, session)
         if not title or not content:
-            return {"status": "failed", "reason": "모든 크롤링 방식 실패", "link": final_link_crawled}
-        
-        # 요약 진행
+            return {"status": "failed", "reason": "크롤링 실패", "link": link}
         summary = await summarize_individual_article_async(title, content)
         if not summary:
-            return {"status": "failed", "reason": "개별 요약 실패", "link": final_link_crawled}
-            
+            return {"status": "failed", "reason": "개별 요약 실패", "link": link}
         return {
             "status": "success",
             "title": re.sub("<.*?>", "", item["title"]),
-            "link": final_link_crawled,  # 성공적으로 크롤링된 링크를 기록
+            "link": link,
             "original_item": item,
             "summary": summary,
         }
 
 
 async def synthesize_final_report(summaries):
+    """모든 뉴스 요약본을 받아 하나의 종합 보고서를 생성합니다."""
+    
+    # AI 입력의 안정성을 위해 최대 글자 수 제한 (토큰 약 2만개 분량)
     MAX_INPUT_CHARS = 25000 
     
     full_summary_text = ""
@@ -388,7 +317,8 @@ async def synthesize_final_report(summaries):
 
     def generate_content_sync():
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            # 보고서 전체를 생성해야 하므로 최대 출력 토큰을 넉넉하게 설정
             generation_config = {"temperature": 0.2} 
             response = model.generate_content(
                 contents=[system_prompt, user_prompt],
@@ -409,16 +339,17 @@ async def run_analysis_and_synthesis_async(filtered_items, progress_callback=Non
     failed_results = []
     total_items = len(filtered_items)
 
-    tasks = [process_article_task(item, semaphore) for item in filtered_items]
-    for i, future in enumerate(asyncio.as_completed(tasks)):
-        result = await future
-        if result and result["status"] == "success":
-            successful_results.append(result)
-        else:
-            failed_results.append(result or {"status": "failed", "reason": "알 수 없는 오류", "link": ""})
+    async with httpx.AsyncClient() as session:
+        tasks = [process_article_task(item, session, semaphore) for item in filtered_items]
+        for i, future in enumerate(asyncio.as_completed(tasks)):
+            result = await future
+            if result and result["status"] == "success":
+                successful_results.append(result)
+            else:
+                failed_results.append(result or {"status": "failed", "reason": "알 수 없는 오류", "link": ""})
 
-        if progress_callback:
-            progress_callback(i + 1, total_items, f"📰 기사 요약 중... ({i + 1}/{total_items})")
+            if progress_callback:
+                progress_callback(i + 1, total_items, f"📰 기사 요약 중... ({i + 1}/{total_items})")
 
     if not successful_results:
         return None, [], []
@@ -460,7 +391,7 @@ def save_summary_to_word(summary_text, successful_results, output_stream):
         if not line or line == "---":
             continue
 
-        p = None
+        p = None # 단락 변수 초기화
 
         if line.startswith("### "):
             p = doc.add_paragraph()
@@ -477,10 +408,12 @@ def save_summary_to_word(summary_text, successful_results, output_stream):
         elif line.startswith("* "):
             p = doc.add_paragraph(style="List Bullet")
             p.paragraph_format.left_indent = Pt(20) 
+            # [수정] 리스트 항목에서 ** 제거 및 굵은 글씨 처리
             clean_line = line.replace("* ", "").replace("**", "")
             p.add_run(clean_line)
         else:
             p = doc.add_paragraph()
+            # [수정] 일반 텍스트에서 ** 제거 및 굵은 글씨 처리
             parts = re.split(r'(\*\*.*?\*\*)', line)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
@@ -556,5 +489,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
-
