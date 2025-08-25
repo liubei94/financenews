@@ -74,7 +74,7 @@ async def extract_initial_article_content_async(url: str):
             Focus only on the article's body, ignoring comments, related articles, and advertisements.
             Return the result in JSON format based on the provided schema.""",
         ),
-        cache_mode=CacheMode.ENABLED
+        cache_mode=CacheMode.DISABLED
     )
     try:
         async with AsyncWebCrawler(verbose=False) as crawler:
@@ -500,3 +500,4 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
+
