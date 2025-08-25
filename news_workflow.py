@@ -193,6 +193,43 @@ def filter_news_by_date(news_items, start_date, end_date):
             continue
     return filtered_items
 
+# [추가] 네이버 뉴스 전용 빠른 스크래퍼 함수
+async def extract_naver_article_fast_async(link: str):
+    """
+    n.news.naver.com 링크에 대해 httpx와 BeautifulSoup를 사용해 빠르게 내용을 추출합니다.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    try:
+        async with httpx.AsyncClient() as session:
+            response = await session.get(link, headers=headers, timeout=10, follow_redirects=True)
+            response.raise_for_status()
+            
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # 네이버 뉴스 타이틀 추출
+        title_tag = soup.find("meta", property="og:title")
+        title = title_tag["content"].strip() if title_tag else "제목 없음"
+        
+        # 네이버 뉴스 본문 선택자 (가장 일반적인 2가지)
+        content_area = soup.select_one("article#dic_area, div#newsct_article")
+        
+        if content_area:
+            # 불필요한 요소 제거 (예: 기자 정보, 저작권 문구 등)
+            for el in content_area.select("span.byline, div.journalist_area, p.copyright"):
+                el.decompose()
+            content = content_area.get_text(separator="\n", strip=True)
+            # 성공 시 제목과 본문 반환
+            if content:
+                print(f"✅ 빠른 스크래핑 성공: {link}")
+                return title, content
+
+    except Exception as e:
+        print(f"⚠️ 빠른 스크래핑 실패: {link}, 오류: {e}")
+        pass # 실패 시 아래 crawl4ai가 처리하도록 None 반환
+        
+    return None, None
 
 async def extract_article_content_async(link: str):
     """
@@ -269,13 +306,29 @@ async def summarize_individual_article_async(title, content):
 
 async def process_article_task(item, semaphore):
     async with semaphore:
-        link = item.get("originallink", item.get("link"))
-        title, content = await extract_article_content_async(link)
+        # [수정] 네이버 링크를 우선 사용하도록 순서를 변경합니다.
+        link = item.get("link", item.get("originallink"))
+        
+        title, content = None, None
+
+        # 1. n.news.naver.com 링크인 경우, 먼저 빠른 네이버 전용 스크래퍼를 시도합니다.
+        if "n.news.naver.com" in link:
+            title, content = await extract_naver_article_fast_async(link)
+
+        # 2. 빠른 스크래핑에 실패했거나, 네이버 링크가 아닐 경우, crawl4ai를 이용한 강력한 폴백(Fallback)을 실행합니다.
+        if not title or not content:
+            print(f"➡️ crawl4ai 폴백 실행: {link}")
+            title, content = await extract_article_content_async(link)
+        
+        # 두 방식 모두 실패한 경우
         if not title or not content:
             return {"status": "failed", "reason": "크롤링 실패", "link": link}
+        
+        # 요약 진행
         summary = await summarize_individual_article_async(title, content)
         if not summary:
             return {"status": "failed", "reason": "개별 요약 실패", "link": link}
+            
         return {
             "status": "success",
             "title": re.sub("<.*?>", "", item["title"]),
@@ -500,4 +553,3 @@ def extract_pubdate_from_item(item):
         except:
             return None
     return None
-
