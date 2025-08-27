@@ -27,4 +27,5 @@ google-generativeai
 google-genai
 
 # LLM-based web scraping and content extraction
-crawl4ai
+# crawl4ai
+
